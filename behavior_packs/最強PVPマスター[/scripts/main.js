@@ -213,12 +213,6 @@ function applyTargetMode(master) {
   } catch {}
 }
 
-// 演出(タイトル・効果音・花火)を表示するか
-function isTextOn() {
-  const v = world.getDynamicProperty("pvp_text");
-  return v !== false;   // 未設定なら表示(初期値ON)
-}
-
 function getLevel() {
   const v = world.getDynamicProperty("pvp_level");
   return (typeof v === "number" && LEVELS[v]) ? v : DEFAULT_LEVEL;
@@ -236,16 +230,9 @@ function getWeaponId() {
 
 
 
-// ボスバーの名前を切り替える
-// ボスバーの表示名は minecraft:boss コンポーネントの name で決まるため、
-// レベルごとに用意したコンポーネントグループをイベントで差し替える。
-// (nameTag ではボスバーの名前は変わらない)
+// 頭上に表示する名前をレベルに合わせる
 function updateName(master) {
   const lv = getLevel();
-  try {
-    master.triggerEvent(`pvp:set_boss_lv${lv}`);
-  } catch {}
-  // 頭上に浮かぶ名前も合わせておく
   try {
     master.nameTag = `最強PVPマスター（${LEVELS[lv].name}）`;
   } catch {}
@@ -1011,23 +998,6 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
   }
 });
 
-// ---------- コマンドによる演出のON/OFF ----------
-// 使い方: /scriptevent pvp:text off  /  /scriptevent pvp:text on
-system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvp:text") return;
-  const m = (ev.message || "").trim().toLowerCase();
-  if (m === "off") {
-    world.setDynamicProperty("pvp_text", false);
-    world.sendMessage("§6[PVPマスター] §e召喚・勝敗の演出(テキスト/効果音/花火)を §c非表示 §eにしました");
-  } else if (m === "on") {
-    world.setDynamicProperty("pvp_text", true);
-    world.sendMessage("§6[PVPマスター] §e演出を §a表示 §eに戻しました");
-  } else {
-    world.sendMessage("§c[PVPマスター] 使い方: /scriptevent pvp:text <on / off>");
-    world.sendMessage(`§7  現在: ${isTextOn() ? "表示" : "非表示"}`);
-  }
-});
-
 // ---------- コマンドによる武器変更 ----------
 // 使い方: /scriptevent pvp:weapon <アイテムID>  例: diamond_sword, netherite_axe, trident
 system.afterEvents.scriptEventReceive.subscribe((ev) => {
@@ -1106,7 +1076,7 @@ if (world.afterEvents.entityLoad) {
   });
 }
 
-// ---------- 登場演出 ----------
+// ---------- スポーン時の初期設定 ----------
 world.afterEvents.entitySpawn.subscribe((ev) => {
   const e = ev.entity;
   if (!e || e.typeId !== MASTER_ID) return;
@@ -1115,20 +1085,11 @@ world.afterEvents.entitySpawn.subscribe((ev) => {
     system.runTimeout(() => { try { equipWeapon(e); syncSkin(e); updateName(e); } catch {} }, 10);
     const h = e.getComponent("minecraft:health");
     if (h) system.runTimeout(() => { try { h.resetToMaxValue(); } catch {} }, 5);
-    if (!isTextOn()) return;   // 演出OFF設定なら何も表示しない
-    const dim = e.dimension;
-    const lv = getLevel();
-    for (const p of dim.getPlayers({ location: e.location, maxDistance: 48 })) {
-      p.onScreenDisplay.setTitle(`§4⚔ 最強PVPマスター §c参戦!`, {
-        subtitle: `§7強さレベル ${lv} (${LEVELS[lv].name}) - /scriptevent pvp:level で調整可`,
-        fadeInDuration: 5, stayDuration: 50, fadeOutDuration: 10,
-      });
-      p.playSound("mob.enderdragon.growl", { volume: 0.6, pitch: 1.2 });
-    }
+    world.sendMessage(`§e最強PVPマスター（${LEVELS[getLevel()].name}）がゲームに入室しました`);
   } catch {}
 });
 
-// ---------- 勝敗判定 ----------
+// ---------- 死亡時の処理 ----------
 world.afterEvents.entityDie.subscribe((ev) => {
   const dead = ev.deadEntity;
   const killer = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
@@ -1146,27 +1107,43 @@ world.afterEvents.entityDie.subscribe((ev) => {
       }
     }
     states.delete(dead.id);
-    if (!isTextOn()) return;   // 演出OFF(水の回収などの後始末は済んでいる)
-    try {
-      const dim = dead.dimension;
-      const loc = dead.location;
-      for (const p of dim.getPlayers({ location: loc, maxDistance: 64 })) {
-        p.onScreenDisplay.setTitle("§6§l勝 利 !", {
-          subtitle: "§eあなたは最強PVPマスターを打ち倒した!",
-          fadeInDuration: 5, stayDuration: 70, fadeOutDuration: 15,
-        });
-        p.playSound("random.levelup", { volume: 1.0, pitch: 1.0 });
-      }
-      for (let i = 0; i < 4; i++) {
-        system.runTimeout(() => {
-          try {
-            dim.spawnEntity("minecraft:fireworks_rocket", {
-              x: loc.x + (Math.random() * 4 - 2), y: loc.y, z: loc.z + (Math.random() * 4 - 2),
-            });
-          } catch {}
-        }, i * 8);
-      }
-    } catch {}
+    const botName = dead.nameTag || "最強PVPマスター";
+    if (killer && killer.typeId === "minecraft:player") {
+      world.sendMessage(`§f${botName}は${killer.name}に殺害された`);
+    } else if (killer) {
+      const killerName = killer.nameTag || killer.typeId;
+      world.sendMessage(`§f${botName}は${killerName}に倒された`);
+    } else {
+      const causes = {
+        anvil: "金床に押しつぶされた",
+        blockExplosion: "爆発で倒された",
+        drowning: "溺死した",
+        entityExplosion: "爆発で倒された",
+        fall: "落下死した",
+        fallingBlock: "落下ブロックに押しつぶされた",
+        fire: "火で焼け死んだ",
+        fireTick: "火で焼け死んだ",
+        fireworks: "花火で倒された",
+        flyIntoWall: "壁に激突して倒れた",
+        freezing: "凍死した",
+        lava: "溶岩で焼け死んだ",
+        lightning: "雷に打たれた",
+        magic: "魔法で倒された",
+        magma: "マグマブロックで倒れた",
+        projectile: "飛び道具で倒された",
+        stalactite: "鍾乳石に貫かれた",
+        stalagmite: "尖った鍾乳石に貫かれた",
+        starve: "飢え死にした",
+        suffocation: "窒息死した",
+        void: "奈落に落ちた",
+        wither: "衰弱して倒れた",
+        sonicBoom: "ソニックブームで倒された",
+        maceSmash: "メイスで叩きつぶされた",
+      };
+      const cause = ev.damageSource && ev.damageSource.cause;
+      world.sendMessage(`§f${botName}は${causes[cause] || `${cause || "不明な原因"}で倒された`}`);
+    }
+    world.sendMessage(`§e${botName}がゲームを退出しました`);
     return;
   }
 
@@ -1175,13 +1152,6 @@ world.afterEvents.entityDie.subscribe((ev) => {
       // マスターの全回復は演出ではなく仕様なので、設定に関わらず行う
       const hp = killer.getComponent("minecraft:health");
       if (hp) hp.resetToMaxValue();
-      if (!isTextOn()) return;
-      dead.onScreenDisplay.setTitle("§4§l敗 北 …", {
-        subtitle: "§7最強PVPマスターの勝利。再戦を待つ。",
-        fadeInDuration: 5, stayDuration: 70, fadeOutDuration: 15,
-      });
-      dead.playSound("mob.wither.death", { volume: 0.5, pitch: 0.8 });
-      killer.dimension.playSound("random.totem", killer.location);
     } catch {}
   }
 });

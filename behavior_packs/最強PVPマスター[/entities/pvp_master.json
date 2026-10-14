@@ -135,49 +135,9 @@
       "minecraft:equipment": {
         "table": "loot_tables/entities/pvp_master_gear.json"
       },
-      "minecraft:boss": {
-        "should_darken_sky": false,
-        "hud_range": 60,
-        "name": "最強PVPマスター（騎士）"
-      },
       "minecraft:fire_immune": {}
     },
     "component_groups": {
-      "pvp:boss_lv1": {
-        "minecraft:boss": {
-          "should_darken_sky": false,
-          "hud_range": 60,
-          "name": "最強PVPマスター（見習い）"
-        }
-      },
-      "pvp:boss_lv2": {
-        "minecraft:boss": {
-          "should_darken_sky": false,
-          "hud_range": 60,
-          "name": "最強PVPマスター（兵士）"
-        }
-      },
-      "pvp:boss_lv3": {
-        "minecraft:boss": {
-          "should_darken_sky": false,
-          "hud_range": 60,
-          "name": "最強PVPマスター（騎士）"
-        }
-      },
-      "pvp:boss_lv4": {
-        "minecraft:boss": {
-          "should_darken_sky": false,
-          "hud_range": 60,
-          "name": "最強PVPマスター（剣聖）"
-        }
-      },
-      "pvp:boss_lv5": {
-        "minecraft:boss": {
-          "should_darken_sky": false,
-          "hud_range": 60,
-          "name": "最強PVPマスター（魔王級）"
-        }
-      },
       "pvp:target_all": {
         "minecraft:behavior.nearest_attackable_target": {
           "priority": 1,
@@ -227,81 +187,6 @@
       }
     },
     "events": {
-      "pvp:set_boss_lv1": {
-        "add": {
-          "component_groups": [
-            "pvp:boss_lv1"
-          ]
-        },
-        "remove": {
-          "component_groups": [
-            "pvp:boss_lv2",
-            "pvp:boss_lv3",
-            "pvp:boss_lv4",
-            "pvp:boss_lv5"
-          ]
-        }
-      },
-      "pvp:set_boss_lv2": {
-        "add": {
-          "component_groups": [
-            "pvp:boss_lv2"
-          ]
-        },
-        "remove": {
-          "component_groups": [
-            "pvp:boss_lv1",
-            "pvp:boss_lv3",
-            "pvp:boss_lv4",
-            "pvp:boss_lv5"
-          ]
-        }
-      },
-      "pvp:set_boss_lv3": {
-        "add": {
-          "component_groups": [
-            "pvp:boss_lv3"
-          ]
-        },
-        "remove": {
-          "component_groups": [
-            "pvp:boss_lv1",
-            "pvp:boss_lv2",
-            "pvp:boss_lv4",
-            "pvp:boss_lv5"
-          ]
-        }
-      },
-      "pvp:set_boss_lv4": {
-        "add": {
-          "component_groups": [
-            "pvp:boss_lv4"
-          ]
-        },
-        "remove": {
-          "component_groups": [
-            "pvp:boss_lv1",
-            "pvp:boss_lv2",
-            "pvp:boss_lv3",
-            "pvp:boss_lv5"
-          ]
-        }
-      },
-      "pvp:set_boss_lv5": {
-        "add": {
-          "component_groups": [
-            "pvp:boss_lv5"
-          ]
-        },
-        "remove": {
-          "component_groups": [
-            "pvp:boss_lv1",
-            "pvp:boss_lv2",
-            "pvp:boss_lv3",
-            "pvp:boss_lv4"
-          ]
-        }
-      },
       "pvp:set_target_all": {
         "add": {
           "component_groups": [
