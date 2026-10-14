@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "最強PVPマスター [RP]",
+    "description": "最強PVPマスターの見た目・スポーンエッグ用リソースパック",
+    "uuid": "8a29589f-1aa6-4ba2-b765-e2d1a6f910e4",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "0523799a-834a-4756-9941-ce56d28f60d7",
+      "version": [1, 0, 0]
+    }
+  ]
+}

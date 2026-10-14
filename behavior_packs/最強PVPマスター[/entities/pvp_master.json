@@ -1,0 +1,331 @@
+{
+  "format_version": "1.21.0",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "pvp:master",
+      "is_spawnable": true,
+      "is_summonable": true,
+      "properties": {
+        "pvp:skin_level": {
+          "type": "int",
+          "range": [
+            1,
+            5
+          ],
+          "default": 3,
+          "client_sync": true
+        }
+      }
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "pvp_master",
+          "monster",
+          "mob"
+        ]
+      },
+      "minecraft:nameable": {
+        "always_show": true,
+        "allow_name_tag_renaming": false
+      },
+      "minecraft:persistent": {},
+      "minecraft:health": {
+        "value": 40,
+        "max": 40
+      },
+      "minecraft:attack": {
+        "damage": 3
+      },
+      "minecraft:movement": {
+        "value": 0.28
+      },
+      "minecraft:underwater_movement": {
+        "value": 0.25
+      },
+      "minecraft:follow_range": {
+        "value": 128,
+        "max": 128
+      },
+      "minecraft:knockback_resistance": {
+        "value": 0.3
+      },
+      "minecraft:collision_box": {
+        "width": 0.6,
+        "height": 1.8
+      },
+      "minecraft:scale": {
+        "value": 1.0
+      },
+      "minecraft:breathable": {
+        "breathes_water": true,
+        "breathes_air": true
+      },
+      "minecraft:can_climb": {},
+      "minecraft:jump.static": {},
+      "minecraft:movement.basic": {},
+      "minecraft:navigation.walk": {
+        "can_path_over_water": false,
+        "can_swim": true,
+        "can_sink": false,
+        "avoid_water": false,
+        "can_pass_doors": true,
+        "can_open_doors": true,
+        "can_break_doors": true,
+        "can_jump": true,
+        "is_amphibious": true
+      },
+      "minecraft:annotation.break_door": {
+        "break_time": 3.0
+      },
+      "minecraft:annotation.open_door": {},
+      "minecraft:physics": {},
+      "minecraft:pushable": {
+        "is_pushable": true,
+        "is_pushable_by_piston": true
+      },
+      "minecraft:experience_reward": {
+        "on_death": "50"
+      },
+      "minecraft:loot": {
+        "table": "loot_tables/entities/pvp_master.json"
+      },
+      "minecraft:behavior.float": {
+        "priority": 0
+      },
+      "minecraft:behavior.melee_box_attack": {
+        "priority": 2,
+        "cooldown_time": 0.55,
+        "horizontal_reach": 2.0,
+        "speed_multiplier": 1.3,
+        "track_target": true
+      },
+      "minecraft:behavior.nearest_attackable_target": {
+        "priority": 1,
+        "must_see": false,
+        "reselect_targets": true,
+        "within_radius": 64.0,
+        "scan_interval": 10,
+        "entity_types": [
+          {
+            "filters": {
+              "test": "is_family",
+              "subject": "other",
+              "value": "player"
+            },
+            "max_dist": 128
+          }
+        ]
+      },
+      "minecraft:behavior.hurt_by_target": {
+        "priority": 3
+      },
+      "minecraft:behavior.random_stroll": {
+        "priority": 6,
+        "speed_multiplier": 0.8
+      },
+      "minecraft:behavior.look_at_player": {
+        "priority": 7,
+        "look_distance": 12.0
+      },
+      "minecraft:behavior.random_look_around": {
+        "priority": 8
+      },
+      "minecraft:conditional_bandwidth_optimization": {},
+      "minecraft:equipment": {
+        "table": "loot_tables/entities/pvp_master_gear.json"
+      },
+      "minecraft:boss": {
+        "should_darken_sky": false,
+        "hud_range": 60,
+        "name": "最強PVPマスター（騎士）"
+      },
+      "minecraft:fire_immune": {}
+    },
+    "component_groups": {
+      "pvp:boss_lv1": {
+        "minecraft:boss": {
+          "should_darken_sky": false,
+          "hud_range": 60,
+          "name": "最強PVPマスター（見習い）"
+        }
+      },
+      "pvp:boss_lv2": {
+        "minecraft:boss": {
+          "should_darken_sky": false,
+          "hud_range": 60,
+          "name": "最強PVPマスター（兵士）"
+        }
+      },
+      "pvp:boss_lv3": {
+        "minecraft:boss": {
+          "should_darken_sky": false,
+          "hud_range": 60,
+          "name": "最強PVPマスター（騎士）"
+        }
+      },
+      "pvp:boss_lv4": {
+        "minecraft:boss": {
+          "should_darken_sky": false,
+          "hud_range": 60,
+          "name": "最強PVPマスター（剣聖）"
+        }
+      },
+      "pvp:boss_lv5": {
+        "minecraft:boss": {
+          "should_darken_sky": false,
+          "hud_range": 60,
+          "name": "最強PVPマスター（魔王級）"
+        }
+      },
+      "pvp:target_all": {
+        "minecraft:behavior.nearest_attackable_target": {
+          "priority": 1,
+          "must_see": false,
+          "reselect_targets": true,
+          "within_radius": 64.0,
+          "scan_interval": 10,
+          "entity_types": [
+            {
+              "filters": {
+                "test": "is_family",
+                "subject": "other",
+                "value": "player"
+              },
+              "max_dist": 128
+            }
+          ]
+        }
+      },
+      "pvp:target_tag": {
+        "minecraft:behavior.nearest_attackable_target": {
+          "priority": 1,
+          "must_see": false,
+          "reselect_targets": true,
+          "within_radius": 64.0,
+          "scan_interval": 10,
+          "entity_types": [
+            {
+              "filters": {
+                "all_of": [
+                  {
+                    "test": "is_family",
+                    "subject": "other",
+                    "value": "player"
+                  },
+                  {
+                    "test": "has_tag",
+                    "subject": "other",
+                    "value": "pvp_target"
+                  }
+                ]
+              },
+              "max_dist": 128
+            }
+          ]
+        }
+      }
+    },
+    "events": {
+      "pvp:set_boss_lv1": {
+        "add": {
+          "component_groups": [
+            "pvp:boss_lv1"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "pvp:boss_lv2",
+            "pvp:boss_lv3",
+            "pvp:boss_lv4",
+            "pvp:boss_lv5"
+          ]
+        }
+      },
+      "pvp:set_boss_lv2": {
+        "add": {
+          "component_groups": [
+            "pvp:boss_lv2"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "pvp:boss_lv1",
+            "pvp:boss_lv3",
+            "pvp:boss_lv4",
+            "pvp:boss_lv5"
+          ]
+        }
+      },
+      "pvp:set_boss_lv3": {
+        "add": {
+          "component_groups": [
+            "pvp:boss_lv3"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "pvp:boss_lv1",
+            "pvp:boss_lv2",
+            "pvp:boss_lv4",
+            "pvp:boss_lv5"
+          ]
+        }
+      },
+      "pvp:set_boss_lv4": {
+        "add": {
+          "component_groups": [
+            "pvp:boss_lv4"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "pvp:boss_lv1",
+            "pvp:boss_lv2",
+            "pvp:boss_lv3",
+            "pvp:boss_lv5"
+          ]
+        }
+      },
+      "pvp:set_boss_lv5": {
+        "add": {
+          "component_groups": [
+            "pvp:boss_lv5"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "pvp:boss_lv1",
+            "pvp:boss_lv2",
+            "pvp:boss_lv3",
+            "pvp:boss_lv4"
+          ]
+        }
+      },
+      "pvp:set_target_all": {
+        "add": {
+          "component_groups": [
+            "pvp:target_all"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "pvp:target_tag"
+          ]
+        }
+      },
+      "pvp:set_target_tag": {
+        "add": {
+          "component_groups": [
+            "pvp:target_tag"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "pvp:target_all"
+          ]
+        }
+      }
+    }
+  }
+}

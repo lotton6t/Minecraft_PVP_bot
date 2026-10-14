@@ -1,0 +1,62 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "pvp:master",
+      "min_engine_version": "1.8.0",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "lv1": "textures/entity/pvp_master_lv1",
+        "lv2": "textures/entity/pvp_master_lv2",
+        "lv3": "textures/entity/pvp_master_lv3",
+        "lv4": "textures/entity/pvp_master_lv4",
+        "lv5": "textures/entity/pvp_master_lv5"
+      },
+      "geometry": {
+        "default": "geometry.pvp_master"
+      },
+      "spawn_egg": {
+        "base_color": "#98A0AC",
+        "overlay_color": "#AA2020"
+      },
+      "scripts": {
+        "initialize": [
+          "variable.is_holding_right = 1.0;",
+          "variable.gliding_speed_value = 1.0;"
+        ],
+        "pre_animation": [
+          "variable.tcos0 = (math.cos(query.modified_distance_moved * 38.17) * query.modified_move_speed / variable.gliding_speed_value) * 57.3;",
+          "variable.bob_animation = query.life_time;",
+          "variable.attack_body_rot_y = Math.sin(360*Math.sqrt(variable.attack_time)) * 5.0;"
+        ],
+        "animate": [
+          "humanoid_base_pose",
+          {
+            "look_at_target": "!query.is_sleeping && !query.is_swimming"
+          },
+          "move",
+          "bob",
+          "holding",
+          "attack_controller"
+        ]
+      },
+      "animations": {
+        "humanoid_base_pose": "animation.humanoid.base_pose",
+        "look_at_target": "controller.animation.humanoid.look_at_target",
+        "look_at_target_default": "animation.common.look_at_target.default",
+        "look_at_target_gliding": "animation.humanoid.look_at_target.gliding",
+        "look_at_target_swimming": "animation.humanoid.look_at_target.swimming",
+        "move": "animation.humanoid.move",
+        "bob": "animation.humanoid.bob",
+        "holding": "animation.humanoid.holding",
+        "attack_controller": "controller.animation.humanoid.attack",
+        "attack_rotations": "animation.humanoid.attack.rotations"
+      },
+      "render_controllers": [
+        "controller.render.pvp_master"
+      ]
+    }
+  }
+}
