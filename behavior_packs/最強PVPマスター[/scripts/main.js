@@ -18,11 +18,11 @@ const SPAWN_EGG_LEVELS = {
 // ---------- 強さレベル定義 (1〜5) ----------
 // strength/resistance/health_boost は -1 でエフェクトなし
 const LEVELS = {
-  1: { name: "見習い",   strength: -1, resistance: -1, hboost: -1, healAmt: 6,  healThr: 0.45, healCd: 240, crit: 0.15, strafePow: 0.30 },
-  2: { name: "兵士",     strength: -1, resistance: -1, hboost: 0,  healAmt: 8,  healThr: 0.55, healCd: 200, crit: 0.25, strafePow: 0.35 },
-  3: { name: "騎士",     strength: 0,  resistance: -1, hboost: 1,  healAmt: 10, healThr: 0.65, healCd: 160, crit: 0.35, strafePow: 0.40 },
-  4: { name: "剣聖",     strength: 0,  resistance: 0,  hboost: 3,  healAmt: 12, healThr: 0.70, healCd: 130, crit: 0.45, strafePow: 0.45 },
-  5: { name: "魔王級",   strength: 1,  resistance: 1,  hboost: 5,  healAmt: 15, healThr: 0.75, healCd: 100, crit: 0.55, strafePow: 0.50 },
+  1: { name: "見習い",   weapon: "minecraft:iron_sword",      armor: "iron",      strength: -1, resistance: -1, hboost: -1, healAmt: 6,  healThr: 0.45, healCd: 240, crit: 0.15, strafePow: 0.30 },
+  2: { name: "兵士",     weapon: "minecraft:diamond_sword",   armor: "diamond",   strength: -1, resistance: -1, hboost: 0,  healAmt: 8,  healThr: 0.55, healCd: 200, crit: 0.25, strafePow: 0.35 },
+  3: { name: "騎士",     weapon: "minecraft:diamond_sword",   armor: "diamond",   strength: 0,  resistance: -1, hboost: 1,  healAmt: 10, healThr: 0.65, healCd: 160, crit: 0.35, strafePow: 0.40 },
+  4: { name: "剣聖",     weapon: "minecraft:netherite_sword", armor: "netherite", strength: 0,  resistance: 0,  hboost: 3,  healAmt: 12, healThr: 0.70, healCd: 130, crit: 0.45, strafePow: 0.45 },
+  5: { name: "魔王級",   weapon: "minecraft:netherite_sword", armor: "netherite", strength: 1,  resistance: 1,  hboost: 5,  healAmt: 15, healThr: 0.75, healCd: 100, crit: 0.55, strafePow: 0.50 },
 };
 const DEFAULT_LEVEL = 3;
 
@@ -233,9 +233,10 @@ function cfg(master) { return LEVELS[getLevel(master)]; }
 // 使い方: /scriptevent pvpbot:weapon diamond_sword
 const DEFAULT_WEAPON = "minecraft:netherite_sword";
 
-function getWeaponId() {
+function getWeaponId(master) {
   const v = world.getDynamicProperty("pvp_weapon");
-  return (typeof v === "string" && v.length > 0) ? v : DEFAULT_WEAPON;
+  if (typeof v === "string" && v.length > 0) return v;
+  return master ? cfg(master).weapon : DEFAULT_WEAPON;
 }
 
 
@@ -259,7 +260,7 @@ function syncSkin(master) {
 // 手持ちと食い違う環境がある(武器によって片方しか効かない症状の原因)。
 // どちらも同じ武器に置き換えるだけなので、二重に実行しても害はない。
 function equipWeapon(master) {
-  const id = getWeaponId();
+  const id = getWeaponId(master);
   const short = id.replace("minecraft:", "");
   let ok = false;
 
@@ -283,6 +284,19 @@ function equipWeapon(master) {
     } catch {}
   }
   return ok;
+}
+
+function equipLevelArmor(master) {
+  const material = cfg(master).armor;
+  const armor = [
+    ["head", `${material}_helmet`],
+    ["chest", `${material}_chestplate`],
+    ["legs", `${material}_leggings`],
+    ["feet", `${material}_boots`],
+  ];
+  for (const [slot, item] of armor) {
+    master.runCommand(`replaceitem entity @s slot.armor.${slot} 0 ${item} 1`);
+  }
 }
 
 // 実際に手に持っているものを読み取る(読めない環境では null)
@@ -982,7 +996,10 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
     world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:weapon <アイテムID>");
     world.sendMessage("§7  例: diamond_sword / netherite_axe / iron_sword / stick");
     world.sendMessage("§7  ※trident等の一部は装備されても見た目が表示されない場合あり");
-    world.sendMessage(`§7  現在の武器: ${getWeaponId()}`);
+    const weaponOverride = world.getDynamicProperty("pvp_weapon");
+    world.sendMessage(typeof weaponOverride === "string" && weaponOverride.length > 0
+      ? `§7  現在の武器設定: ${weaponOverride}（全レベル共通）`
+      : "§7  現在の武器設定: レベル別（1=鉄、2～3=ダイヤ、4～5=ネザライト）");
     return;
   }
   if (!id.includes(":")) id = "minecraft:" + id;
@@ -1067,6 +1084,7 @@ world.afterEvents.entitySpawn.subscribe((ev) => {
       try {
         applyLevelBuffs(e);
         equipWeapon(e);
+        equipLevelArmor(e);
         syncSkin(e);
         updateName(e);
         const h = e.getComponent("minecraft:health");

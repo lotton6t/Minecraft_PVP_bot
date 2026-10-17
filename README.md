@@ -19,6 +19,8 @@ Summon a selected level with its entity spawn event:
 ```
 
 Replace `1` with `2` through `5` to choose another level. Alternatively, use one of the five PVPbot level spawn eggs from the Creative inventory.
+Armor depends on the level: level 1 wears iron, levels 2 and 3 wear diamond, and levels 4 and 5 wear netherite.
+The sword follows the same tiers: level 1 uses iron, levels 2 and 3 use diamond, and levels 4 and 5 use netherite. An explicit `/scriptevent pvpbot:weapon <item_id>` setting overrides the level-based sword for all bots.
 
 In `tag` target mode, add the `pvp_target` tag to players that the bot should attack:
 
