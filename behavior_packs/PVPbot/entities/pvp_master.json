@@ -31,7 +31,7 @@
       },
       "minecraft:inventory": {
         "container_type": "inventory",
-        "inventory_size": 1,
+        "inventory_size": 2,
         "private": true
       },
       "minecraft:persistent": {},

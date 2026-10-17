@@ -6,12 +6,12 @@
 // ============================================================
 import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
 import { INVENTORY_CONFIG } from "./inventory_config.js";
-import { cleanupWater, placeWaterForMlg } from "./water_bucket.js";
+import { ensureWaterBucketInventory, tickWaterBucket } from "./water_bucket.js";
 
 world.afterEvents.playerSpawn.subscribe((ev) => {
   if (!ev.initialSpawn) return;
   try {
-    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.15 を読み込みました");
+    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.18 を読み込みました");
   } catch (error) {
     console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
   }
@@ -277,10 +277,46 @@ function setMainhandItem(entity, item, label) {
   return equipped;
 }
 
-function getHealingInventory(master) {
+function getMainhandMode(master, state) {
+  if (state.waterMlgPhase === "armed" || state.waterMlgPhase === "recovered") return "falling";
+  if (state.waterMlgPhase === "placed") return "fallingEmpty";
+  return state.healing ? "recovery" : "combat";
+}
+
+function updateMainhandMode(master, force = false) {
+  const state = getState(master);
+  const mode = getMainhandMode(master, state);
+  if (!force && state.mainhandMode === mode) return true;
+
+  let itemId;
+  let label;
+  switch (mode) {
+    case "falling":
+      itemId = INVENTORY_CONFIG.waterBucket.fullItem;
+      label = "落下モードの水バケツ装備";
+      break;
+    case "fallingEmpty":
+      itemId = INVENTORY_CONFIG.waterBucket.emptyItem;
+      label = "落下モードの空バケツ装備";
+      break;
+    case "recovery":
+      itemId = INVENTORY_CONFIG.levels[getLevel(master)].healingItem.id;
+      label = "回復モードの食料装備";
+      break;
+    default:
+      itemId = getWeaponId(master);
+      label = "戦闘モードの武器装備";
+  }
+
+  const equipped = setMainhandItem(master, new ItemStack(itemId, 1), label);
+  if (equipped) state.mainhandMode = mode;
+  return equipped;
+}
+
+function getBotInventory(master) {
   const inventory = master.getComponent("minecraft:inventory");
   if (!inventory || !inventory.container) {
-    throw new Error("Bot healing inventory is unavailable");
+    throw new Error("Bot inventory is unavailable");
   }
   return inventory.container;
 }
@@ -293,7 +329,7 @@ function initializeHealingInventory(master) {
     state.healingItemAmount = healingItem.amount;
   }
   try {
-    const container = getHealingInventory(master);
+    const container = getBotInventory(master);
     const item = container.getItem(0);
     if (!item) {
       container.setItem(0, new ItemStack(healingItem.id, state.healingItemAmount));
@@ -315,6 +351,11 @@ function initializeHealingInventory(master) {
   } catch (error) {
     console.warn(`[PVPbot] 回復用インベントリを同期できません。内部の所持数で管理します: ${error}`);
   }
+  try {
+    ensureWaterBucketInventory(master);
+  } catch (error) {
+    console.warn(`[PVPbot] 水バケツをインベントリに準備できません: ${error}`);
+  }
   return true;
 }
 
@@ -324,7 +365,7 @@ function consumeHealingItem(master) {
   if (state.healingItemId !== healingItem.id || state.healingItemAmount < 1) return false;
   state.healingItemAmount--;
   try {
-    const container = getHealingInventory(master);
+    const container = getBotInventory(master);
     const item = container.getItem(0);
     if (item && item.typeId === healingItem.id) {
       container.setItem(0, state.healingItemAmount > 0
@@ -338,34 +379,31 @@ function consumeHealingItem(master) {
   return true;
 }
 
-function dropHealingItems(master) {
-  const state = states.get(master.id) || getState(master);
-  const configuredItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
-  const itemId = state.healingItemId || configuredItem.id;
-  const amount = state.healingItemId && typeof state.healingItemAmount === "number"
-    ? state.healingItemAmount
-    : configuredItem.amount;
-  if (!itemId || !amount || amount < 1) return;
-  if (!Object.values(INVENTORY_CONFIG.levels).some(
-    (configured) => configured.healingItem.id === itemId
-  )) {
-    throw new Error(`Unexpected item in healing inventory: ${itemId}`);
+function dropInventoryItems(master) {
+  const container = getBotInventory(master);
+  const items = [];
+  for (let slot = 0; slot < container.size; slot++) {
+    const item = container.getItem(slot);
+    if (!item) continue;
+    items.push(item.clone());
+    container.setItem(slot, undefined);
   }
+  if (items.length === 0) return 0;
+
   const dimension = master.dimension;
   const location = { ...master.location, y: master.location.y + 0.25 };
-  const droppedItem = new ItemStack(itemId, amount);
-  state.healingItemAmount = 0;
   system.runTimeout(() => {
-    try {
-      dimension.spawnItem(droppedItem, location);
-      console.info(`[PVPbot] ドロップ成功: ${itemId} x${amount}`);
-      broadcastMessage(`§e[ PVPbot ] 回復アイテムをドロップしました: ${itemId.replace("minecraft:", "")} x${amount}`);
-    } catch (error) {
-      console.error(`[PVPbot] 残りの回復アイテムをドロップできませんでした (${itemId} x${amount}): ${error}`);
-      broadcastMessage(`§c[PVPbot] 回復アイテムのドロップに失敗しました: ${error}`);
+    for (const item of items) {
+      try {
+        dimension.spawnItem(item, location);
+        console.info(`[PVPbot] インベントリアイテムをドロップしました: ${item.typeId} x${item.amount}`);
+      } catch (error) {
+        console.error(`[PVPbot] インベントリアイテムをドロップできませんでした (${item.typeId} x${item.amount}): ${error}`);
+        broadcastMessage(`§c[PVPbot] ${item.typeId.replace("minecraft:", "")} のドロップに失敗しました: ${error}`);
+      }
     }
   }, 1);
-  return amount;
+  return items.reduce((total, item) => total + item.amount, 0);
 }
 
 
@@ -393,9 +431,7 @@ function syncSkin(master) {
 // 手持ちと食い違う環境がある(武器によって片方しか効かない症状の原因)。
 // どちらも同じ武器に置き換えるだけなので、二重に実行しても害はない。
 function equipWeapon(master) {
-  if (getState(master).healing) return false;
-  const id = getWeaponId(master);
-  return setMainhandItem(master, new ItemStack(id, 1), "武器の装備");
+  return updateMainhandMode(master, true);
 }
 
 function equipLevelArmor(master) {
@@ -554,10 +590,11 @@ function getState(entity) {
   let s = states.get(entity.id);
   if (!s) {
     const healingItem = INVENTORY_CONFIG.levels[getLevel(entity)].healingItem;
-    s = { healCd: 0, healing: false, strafeCd: 0, breakCd: 0, mlgCd: 0, pillarCd: 0, stuckTicks: 0,
+    s = { healCd: 0, healing: false, strafeCd: 0, breakCd: 0, pillarCd: 0, stuckTicks: 0,
           lastPos: null, placedWater: [], pillar: null, scanCd: 0, cachedTarget: null,
           dropCd: 0, bridgeCd: 0, healingInventoryInitialized: false, healingInventoryRetry: 0,
-          healingItemId: healingItem.id, healingItemAmount: healingItem.amount, healStatusCd: 0 };
+          healingItemId: healingItem.id, healingItemAmount: healingItem.amount, healStatusCd: 0,
+          waterMlgPhase: "idle", waterMlgTicks: 0, waterMlgLatched: false };
     states.set(entity.id, s);
   }
   return s;
@@ -616,23 +653,24 @@ function tryStartHealing(master) {
   }
   if (s.healing || s.healCd > 0 || s.healingItemAmount < 1) return false;
 
-  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
-  let switchedToFood = false;
-  switchedToFood = setMainhandItem(
-    master, new ItemStack(healingItem.id, 1), "回復アイテムへの持ち替え"
-  );
-
   if (!consumeHealingItem(master)) {
     s.healCd = c.healCd;
     broadcastMessage("[PVPbot] 回復を開始できません: 食料の残数がありません");
     return false;
   }
 
-  broadcastMessage(switchedToFood
-    ? `§e[PVPbot] 回復開始: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)}、${healingItem.id.replace("minecraft:", "")}（残り${s.healingItemAmount}個）`
-    : `§c[PVPbot] 食料を消費しましたが、手持ちの切り替えに失敗しました`);
-
+  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
   s.healing = true;
+  const mainhandMode = getMainhandMode(master, s);
+  const switchedToModeItem = updateMainhandMode(master, true);
+
+  const mainhandStatus = !switchedToModeItem
+    ? "手持ちの切り替えに失敗しました"
+    : mainhandMode === "falling"
+      ? "落下中のため水バケツを保持します"
+      : `${healingItem.id.replace("minecraft:", "")}（残り${s.healingItemAmount}個）`;
+  broadcastMessage(`§e[PVPbot] 回復開始: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)}、${mainhandStatus}`);
+
   s.healCd = c.healCd;
   try {
     master.addEffect("slowness", 30, { amplifier: 5, showParticles: false });
@@ -691,11 +729,21 @@ system.runInterval(() => {
         broadcastMessage(`[PVPbot] 回復判定エラー: ${error}`);
       }
       try {
+        tickWaterBucket(master, dim, dimId, getState(master), isEditProtected);
+      } catch (error) {
+        console.error(`[PVPbot] 落下モード更新に失敗しました: ${error}`);
+      }
+      try {
+        updateMainhandMode(master);
+      } catch (error) {
+        console.error(`[PVPbot] メインハンドのモード切替に失敗しました: ${error}`);
+      }
+      try {
         if (refreshBuffs) applyLevelBuffs(master);
         if (system.currentTick % 100 === 0) {
           equipLevelArmor(master);
           equipOffhandShield(master);
-          if (!getState(master).healing) equipWeapon(master);
+          updateMainhandMode(master, true);
         }
         aiTick(master, dim, dimId);
       } catch { /* チャンク未ロード等は無視 */ }
@@ -718,16 +766,11 @@ function aiTick(master, dim, dimId) {
     s.healingInventoryRetry = 100;
   }
 
-  if (s.mlgCd > 0) s.mlgCd--;
-  cleanupWater(s);
-
   // ---- 溶岩ダメージON中に溶岩へ落ちたら、何よりも先に脱出する ----
   const inLavaNow = isLavaOn() && isInLavaOrFire(master, dim) === "lava";
   if (lavaEscapeTick(master, dim, s, inLavaNow)) return;
 
   const loc = master.location;
-  placeWaterForMlg(master, dim, dimId, s, isEditProtected);
-
   // 毎tick全プレイヤーを走査すると重くなるので、4tickごとに更新して使い回す
   if (s.scanCd === undefined || s.scanCd <= 0) {
     s.cachedTarget = nearestPlayer(dim, loc);
@@ -1333,10 +1376,10 @@ function handleEntityDeath(ev) {
     broadcastMessage("§e[PVPbot] Botの死亡イベントを検知しました");
     let droppedAmount = 0;
     try {
-      droppedAmount = dropHealingItems(dead) || 0;
+      droppedAmount = dropInventoryItems(dead) || 0;
     } catch (error) {
-      console.warn(`[PVPbot] 死亡時に残りの回復アイテムをドロップできませんでした: ${error}`);
-      broadcastMessage(`§c[PVPbot] 回復アイテムのドロップ準備に失敗しました: ${error}`);
+      console.warn(`[PVPbot] 死亡時にインベントリアイテムを回収できませんでした: ${error}`);
+      broadcastMessage(`§c[PVPbot] インベントリアイテムのドロップ準備に失敗しました: ${error}`);
     }
 
     let killer;
@@ -1387,8 +1430,8 @@ function handleEntityDeath(ev) {
     }
     broadcastMessage(deathMessage);
     broadcastMessage(droppedAmount > 0
-      ? `§e${botName}がゲームを退出しました（回復アイテム ${droppedAmount} 個をドロップ）`
-      : `§e${botName}がゲームを退出しました（ドロップできる回復アイテムはありません）`);
+      ? `§e${botName}がゲームを退出しました（インベントリのアイテム ${droppedAmount} 個をドロップ）`
+      : `§e${botName}がゲームを退出しました（ドロップできるインベントリアイテムはありません）`);
 
     // 死ぬ前にMLGで置いた水が残らないよう、先に回収する
     const st = states.get(dead.id);

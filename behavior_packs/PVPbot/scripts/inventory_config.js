@@ -1,6 +1,11 @@
 export const INVENTORY_CONFIG = {
   defaultWeapon: "minecraft:netherite_sword",
   shield: "minecraft:shield",
+  waterBucket: {
+    slot: 1,
+    fullItem: "minecraft:water_bucket",
+    emptyItem: "minecraft:bucket",
+  },
   armorSlots: [
     { slot: "head", suffix: "helmet" },
     { slot: "chest", suffix: "chestplate" },

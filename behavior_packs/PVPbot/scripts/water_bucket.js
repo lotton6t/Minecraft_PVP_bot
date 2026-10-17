@@ -1,128 +1,173 @@
-import { world } from "@minecraft/server";
+import { ItemStack, world } from "@minecraft/server";
+import { INVENTORY_CONFIG } from "./inventory_config.js";
 
-//落下時に水源を設置する処理
-function findMlgGroundBlock(master, dim, state)
+function findMlgGroundBlock(master, dim, maxDistance)
 {
   let ground;
+  let distance;
+  const location = master.location;
+  const x = Math.floor(location.x);
+  const y = Math.floor(location.y);
+  const z = Math.floor(location.z);
 
-  //プレイヤーの落下速度を取得する
-  const velocity = master.getVelocity();
-
-  //落下速度が-0.55以上で、プレイヤーが水中にいない場合、かつmlgCdが0以下の場合、かつ次元がネザーでない場合
-  if (velocity.y < -0.55 && !master.isInWater && state.mlgCd <= 0 && dim.id !== "minecraft:the_nether")
+  for (let depth = 1; depth <= maxDistance + 1; depth++)
   {
-    const location = master.location;
-    const x = Math.floor(location.x);
-    const y = Math.floor(location.y);
-    const z = Math.floor(location.z);
-
-    for (let depth = 1; depth <= 9; depth++)
-    {
-      const block = dim.getBlock({ x, y: y - depth, z });
-      if (!block || block.isAir) continue;
-      if (block.isLiquid) break;
-      ground = block;
-      break;
-    }
+    const block = dim.getBlock({ x, y: y - depth, z });
+    if (!block || block.isAir) continue;
+    if (block.isLiquid) break;
+    ground = block;
+    distance = Math.max(0, location.y - (block.y + 1));
+    break;
   }
 
-  return ground;
+  return ground ? { block: ground, distance } : undefined;
 }
 
-//水源を設置してから6tick後に消す
-export function cleanupWater(state)
+function setInventoryBucket(master, itemId)
 {
-  //設置した水源のリストを逆順にループして、寿命が0になった水源を消す
-  for (let i = state.placedWater.length - 1; i >= 0; i--)
-  {
-    //寿命を1減らす
+  const inventory = master.getComponent("minecraft:inventory");
+  if (!inventory || !inventory.container) {
+    throw new Error("Bot inventory is unavailable");
+  }
+  inventory.container.setItem(
+    INVENTORY_CONFIG.waterBucket.slot,
+    new ItemStack(itemId, 1)
+  );
+}
+
+export function ensureWaterBucketInventory(master) {
+  const inventory = master.getComponent("minecraft:inventory");
+  if (!inventory || !inventory.container) {
+    throw new Error("Bot inventory is unavailable");
+  }
+  const container = inventory.container;
+  const slot = INVENTORY_CONFIG.waterBucket.slot;
+  const item = container.getItem(slot);
+  if (!item || item.typeId === INVENTORY_CONFIG.waterBucket.emptyItem) {
+    container.setItem(slot, new ItemStack(INVENTORY_CONFIG.waterBucket.fullItem, 1));
+  } else if (item.typeId !== INVENTORY_CONFIG.waterBucket.fullItem) {
+    throw new Error(`Unexpected item in water bucket slot: ${item.typeId}`);
+  }
+}
+
+function cleanupWater(state, master) {
+  let waterRecovered = false;
+  for (let i = state.placedWater.length - 1; i >= 0; i--) {
     const water = state.placedWater[i];
     water.ttl--;
-
-    //寿命が0になった水源を消す
     if (water.ttl > 0) continue;
 
-    try
-    {
-      //水源を消す
+    waterRecovered = true;
+    try {
       const waterDimension = world.getDimension(water.dimId);
-
-      //水源の座標にあるブロックを取得する
       const block = waterDimension.getBlock({ x: water.x, y: water.y, z: water.z });
-
-      //ブロックが水源である場合は、空気ブロックに置き換える
-      if (block && block.typeId === "minecraft:water")
-      {
-        //水源を消す
+      if (block && block.typeId === "minecraft:water") {
         block.setType("minecraft:air");
-
-        //水源を消したことを示す音を再生する
-        waterDimension.playSound("bucket.fill_water",
-        {
+        waterDimension.playSound("bucket.fill_water", {
           x: water.x + 0.5, y: water.y + 0.5, z: water.z + 0.5,
         });
       }
+    } catch (error) {
+      console.warn(`[PVPbot] 水源の回収に失敗しました: ${error}`);
     }
-    catch
-    {
-
-    }
-
-    //寿命が0になった水源をリストから削除する
     state.placedWater.splice(i, 1);
   }
+
+  if (waterRecovered && state.waterMlgPhase === "placed") {
+    try {
+      setInventoryBucket(master, INVENTORY_CONFIG.waterBucket.fullItem);
+    } catch (error) {
+      console.warn(`[PVPbot] 回収後に水バケツを補充できませんでした: ${error}`);
+    }
+    state.waterMlgPhase = "recovered";
+    state.waterMlgTicks = 6;
+    state.waterMlgLatched = true;
+  }
+  return waterRecovered;
 }
 
-//落下時に水源を設置する
-export function placeWaterForMlg(master, dim, dimId, state, isEditProtected) {
-  try
-  {
-    //落下地点の地面ブロックを取得する
-    const ground = findMlgGroundBlock(master, dim, state);
+function placeWaterForMlg(master, dim, dimId, state, ground, isEditProtected) {
+  const location = master.location;
+  const above = ground.above();
+  if (!above || !above.isAir || isEditProtected(dim, above.x, above.y + 1, above.z)) return false;
 
-    //地面ブロックが見つからなかった場合は、処理を終了する
-    if (!ground) return;
-
-    const location = master.location;
-    const above = ground.above();
-
-    //地面ブロックの上に水源を設置する
-    if (!above || !above.isAir || isEditProtected(dim, above.x, above.y + 1, above.z)) return;
-
-    try
-    {
-      // setTypeが失敗する場合は、コマンドで水源を設置する
+  setInventoryBucket(master, INVENTORY_CONFIG.waterBucket.emptyItem);
+  try {
+    try {
       above.setType("minecraft:water");
-    }
-    // setTypeが失敗する場合は、コマンドで水源を設置する
-    catch (setTypeError)
-    {
-      // setTypeが失敗する場合は、コマンドで水源を設置する
+    } catch (setTypeError) {
       const result = dim.runCommand(`setblock ${above.x} ${above.y} ${above.z} water`);
-
-      // コマンドが失敗した場合は、エラーをスローする
       if (result.successCount < 1) throw new Error(`${setTypeError}; ${result.statusMessage}`);
     }
 
-    //水源を設置した座標と残り寿命を記録する
-    state.placedWater.push({ x: above.x, y: above.y, z: above.z, dimId, ttl: 6 });
-
-    //水源を設置したことを示すクールダウンを設定する
-    state.mlgCd = 20;
-    try
-    {
-      //水源を設置したことを示す音を再生する
-      dim.playSound("bucket.empty_water", location);
+    const placed = dim.getBlock({ x: above.x, y: above.y, z: above.z });
+    if (!placed || placed.typeId !== "minecraft:water") {
+      const result = dim.runCommand(`setblock ${above.x} ${above.y} ${above.z} water`);
+      if (result.successCount < 1) throw new Error(result.statusMessage);
     }
-    catch
-    {
-
+  } catch (error) {
+    try {
+      setInventoryBucket(master, INVENTORY_CONFIG.waterBucket.fullItem);
+    } catch (restoreError) {
+      console.warn(`[PVPbot] 水バケツを戻せませんでした: ${restoreError}`);
     }
+    throw error;
   }
-  catch (error)
-  {
-    //水源を設置する処理でエラーが発生した場合は、クールダウンを設定してエラーをログに出力するww
-    state.mlgCd = 20;
-    console.warn(`[PVPbot] 落下時の水設置に失敗しました: ${error}`);
+
+  state.placedWater.push({ x: above.x, y: above.y, z: above.z, dimId, ttl: 6 });
+  state.waterMlgPhase = "placed";
+  try {
+    dim.playSound("bucket.empty_water", location);
+  } catch {}
+  return true;
+}
+
+export function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
+  const recoveredThisTick = cleanupWater(state, master);
+  const velocity = master.getVelocity();
+  const isFalling = velocity.y < -0.55 && !master.isInWater && dimId !== "nether";
+
+  if (state.waterMlgPhase === "recovered") {
+    if (!recoveredThisTick) state.waterMlgTicks--;
+    if (state.waterMlgTicks <= 0) state.waterMlgPhase = "idle";
+    return;
+  }
+
+  if (state.waterMlgLatched) {
+    if (master.isOnGround || velocity.y >= -0.55) state.waterMlgLatched = false;
+    else return;
+  }
+
+  if (state.waterMlgPhase === "placed") return;
+  if (!isFalling) {
+    state.waterMlgPhase = "idle";
+    return;
+  }
+
+  let landing = findMlgGroundBlock(master, dim, 20);
+  if (!landing || landing.distance > 20) {
+    state.waterMlgPhase = "idle";
+    return;
+  }
+
+  if (state.waterMlgPhase !== "armed") {
+    ensureWaterBucketInventory(master);
+    state.waterMlgPhase = "armed";
+    return;
+  }
+
+  landing = findMlgGroundBlock(master, dim, 20);
+  if (!landing || landing.distance > 20) {
+    state.waterMlgPhase = "idle";
+    return;
+  }
+
+  if (landing.distance <= 3.5) {
+    try {
+      placeWaterForMlg(master, dim, dimId, state, landing.block, isEditProtected);
+    } catch (error) {
+      state.waterMlgPhase = "idle";
+      console.warn(`[PVPbot] 落下時の水設置に失敗しました: ${error}`);
+    }
   }
 }
