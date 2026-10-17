@@ -4,21 +4,21 @@
     "name": "PVPbot [BP]",
     "description": "PVPbotの戦闘AIを追加するビヘイビアパック。",
     "uuid": "cd7b7ca8-7d0f-40f3-9c3c-f5a9e60c81c6",
-    "version": [1, 9, 0],
+    "version": [1, 11, 0],
     "min_engine_version": [1, 21, 0]
   },
   "modules": [
     {
       "type": "data",
       "uuid": "7bdca576-9dee-4532-9337-355c6631cf4d",
-      "version": [1, 9, 0]
+      "version": [1, 11, 0]
     },
     {
       "type": "script",
       "language": "javascript",
       "uuid": "ee42231e-c1c3-4d60-a04d-ee025325ac2b",
       "entry": "scripts/main.js",
-      "version": [1, 9, 0]
+      "version": [1, 11, 0]
     }
   ],
   "dependencies": [

@@ -535,9 +535,6 @@ function aiTick(master, dim, dimId) {
       system.runTimeout(() => {
         try {
           master.dimension.playSound("random.eat", master.location, { volume: 1.0 });
-          master.dimension.spawnParticle("minecraft:crop_growth_emitter", {
-            x: master.location.x, y: master.location.y + 1.5, z: master.location.z,
-          });
         } catch {}
       }, i * 10);
     }
@@ -546,15 +543,8 @@ function aiTick(master, dim, dimId) {
         const h = master.getComponent("minecraft:health");
         if (h) h.setCurrentValue(Math.min(h.effectiveMax, h.currentValue + c.healAmt));
         master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
-        master.addEffect("absorption", 600, { amplifier: 0, showParticles: false });
+        master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
         master.dimension.playSound("random.burp", master.location);
-        for (let i = 0; i < 5; i++) {
-          master.dimension.spawnParticle("minecraft:heart_particle", {
-            x: master.location.x + (Math.random() - 0.5),
-            y: master.location.y + 1.2 + Math.random(),
-            z: master.location.z + (Math.random() - 0.5),
-          });
-        }
       } catch {}
     }, 30);
   }
