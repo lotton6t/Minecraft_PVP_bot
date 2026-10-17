@@ -1,7 +1,7 @@
-entity.pvp:master.name=最強PVPマスター
-item.spawn_egg.entity.pvp:master.name=最強PVPマスターのスポーンエッグ
-最強PVPマスター（見習い）=最強PVPマスター（見習い）
-最強PVPマスター（兵士）=最強PVPマスター（兵士）
-最強PVPマスター（騎士）=最強PVPマスター（騎士）
-最強PVPマスター（剣聖）=最強PVPマスター（剣聖）
-最強PVPマスター（魔王級）=最強PVPマスター（魔王級）
+entity.pvp:master.name=PVPbot
+item.spawn_egg.entity.pvp:master.name=PVPbotのスポーンエッグ
+PVPbot（見習い）=PVPbot（見習い）
+PVPbot（兵士）=PVPbot（兵士）
+PVPbot（騎士）=PVPbot（騎士）
+PVPbot（剣聖）=PVPbot（剣聖）
+PVPbot（魔王級）=PVPbot（魔王級）

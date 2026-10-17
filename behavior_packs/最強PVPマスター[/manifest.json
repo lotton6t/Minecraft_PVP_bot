@@ -1,8 +1,8 @@
 {
   "format_version": 2,
   "header": {
-    "name": "最強PVPマスター [BP]",
-    "description": "最強のPVP相手を追加するビヘイビアパック。追跡・回避・回復・水バケツMLG・ブロック破壊など全部入り。",
+    "name": "PVPbot [BP]",
+    "description": "PVPbotの戦闘AIを追加するビヘイビアパック。",
     "uuid": "cd7b7ca8-7d0f-40f3-9c3c-f5a9e60c81c6",
     "version": [1, 0, 0],
     "min_engine_version": [1, 21, 0]

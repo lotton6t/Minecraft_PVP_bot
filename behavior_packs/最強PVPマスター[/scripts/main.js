@@ -1,8 +1,8 @@
 // ============================================================
-//  最強PVPマスター - AIスクリプト v3
+//  PVPbot - AIスクリプト v3
 //  機能: 追跡 / ストレイフ&クリティカル / 自己回復 /
 //        水バケツMLG / ブロック破壊 / 勝敗判定 /
-//        コマンドによる強さレベル調整 (/scriptevent pvp:level N)
+//        コマンドによる強さレベル調整 (/scriptevent pvpbot:level N)
 // ============================================================
 import { world, system, GameMode, EquipmentSlot, ItemStack } from "@minecraft/server";
 
@@ -63,7 +63,7 @@ function lavaDamageTick(master, dim) {
 //  溶岩からの脱出(溶岩ダメージONのときだけ働く)
 //  プレイヤーと同じように、ジャンプ連打で浮上しながら岸を探し、
 //  這い上がったら少しだけ溶岩から離れる。
-//  【互換性】pvp:lava off のときは一切動作しない(従来は無敵で
+//  【互換性】pvpbot:lava off のときは一切動作しない(従来は無敵で
 //  溶岩を突っ切って追跡するのが正しい挙動のため)
 // ============================================================
 
@@ -147,7 +147,7 @@ function lavaEscapeTick(master, dim, s, inLava) {
 //  溶岩の橋渡し(溶岩ダメージONのときだけ働く)
 //  目の前に溶岩が広がっていて相手が向こう側にいるとき、
 //  プレイヤーと同じように足元へブロックを置きながら渡っていく。
-//  【互換性】pvp:lava off のときは一切動作しない(無敵で
+//  【互換性】pvpbot:lava off のときは一切動作しない(無敵で
 //  突っ切るのが従来の正しい挙動のため)
 // ============================================================
 function tryLavaBridge(master, target, dim, s, d) {
@@ -220,7 +220,7 @@ function getLevel() {
 function cfg() { return LEVELS[getLevel()]; }
 
 // ---------- 武器システム ----------
-// 使い方: /scriptevent pvp:weapon diamond_sword
+// 使い方: /scriptevent pvpbot:weapon diamond_sword
 const DEFAULT_WEAPON = "minecraft:netherite_sword";
 
 function getWeaponId() {
@@ -234,7 +234,7 @@ function getWeaponId() {
 function updateName(master) {
   const lv = getLevel();
   try {
-    master.nameTag = `最強PVPマスター（${LEVELS[lv].name}）`;
+    master.nameTag = `PVPbot（${LEVELS[lv].name}）`;
   } catch {}
 }
 
@@ -893,17 +893,17 @@ system.runInterval(() => {
 }, 600);
 
 // ---------- コマンドによる強さ調整 ----------
-// 使い方: /scriptevent pvp:level 4   (1〜5)
+// 使い方: /scriptevent pvpbot:level 4   (1〜5)
 system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvp:level") return;
+  if (ev.id !== "pvpbot:level") return;
   const n = parseInt(ev.message, 10);
   if (!LEVELS[n]) {
-    world.sendMessage("§c[PVPマスター] 使い方: /scriptevent pvp:level <1〜5>");
+    world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:level <1〜5>");
     world.sendMessage("§7  1=見習い 2=兵士 3=騎士(標準) 4=剣聖 5=魔王級");
     return;
   }
   world.setDynamicProperty("pvp_level", n);
-  world.sendMessage(`§6[PVPマスター] §e強さレベルを §c${n} (${LEVELS[n].name}) §eに設定しました`);
+  world.sendMessage(`§6[PVPbot] §e強さレベルを §c${n} (${LEVELS[n].name}) §eに設定しました`);
   // 既存の個体に即反映(バフを一度リセットして再付与+全回復)
   for (const dimId of DIMENSIONS) {
     try {
@@ -932,12 +932,12 @@ const RENDER_LIMITED = new Set([
 
 
 // ---------- コマンドによる溶岩ダメージのON/OFF ----------
-// 使い方: /scriptevent pvp:lava on  → 溶岩・炎のダメージを受けるようになる
+// 使い方: /scriptevent pvpbot:lava on  → 溶岩・炎のダメージを受けるようになる
 system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvp:lava") return;
+  if (ev.id !== "pvpbot:lava") return;
   const m = (ev.message || "").trim().toLowerCase();
   if (m !== "on" && m !== "off") {
-    world.sendMessage("§c[PVPマスター] 使い方: /scriptevent pvp:lava <on / off>");
+    world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:lava <on / off>");
     world.sendMessage("§7  on = 溶岩・炎のダメージを受ける / off = 無効(初期値)");
     world.sendMessage(`§7  現在: ${isLavaOn() ? "受ける" : "無効"}`);
     world.sendMessage("§7  ※TNTやエンドクリスタルなどの爆発ダメージは元々受けます");
@@ -945,22 +945,22 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
   }
   world.setDynamicProperty("pvp_lava", m === "on");
   world.sendMessage(m === "on"
-    ? "§6[PVPマスター] §e溶岩・炎のダメージを §c受ける §eようにしました"
-    : "§6[PVPマスター] §e溶岩・炎のダメージを §a無効 §eに戻しました");
+    ? "§6[PVPbot] §e溶岩・炎のダメージを §c受ける §eようにしました"
+    : "§6[PVPbot] §e溶岩・炎のダメージを §a無効 §eに戻しました");
   if (m === "on") {
-    world.sendMessage("§7  ※燃えるエフェクトは出ませんが、体力はボスバーで減っていきます");
+    world.sendMessage("§7  ※燃えるエフェクトは出ませんが、体力は減っていきます");
   }
 });
 
 // ---------- コマンドによるターゲット選択 ----------
-// 使い方: /scriptevent pvp:target tag  /  /scriptevent pvp:target all
+// 使い方: /scriptevent pvpbot:target tag  /  /scriptevent pvpbot:target all
 // タグの付け方: /tag <プレイヤー名> add pvp_target
 system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvp:target") return;
+  if (ev.id !== "pvpbot:target") return;
   const m = (ev.message || "").trim().toLowerCase();
 
   if (m !== "tag" && m !== "all") {
-    world.sendMessage("§c[PVPマスター] 使い方: /scriptevent pvp:target <all / tag>");
+    world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:target <all / tag>");
     world.sendMessage("§7  all = 全プレイヤーを狙う(初期値)");
     world.sendMessage("§7  tag = /tag <名前> add pvp_target を付けた人だけ狙う");
     world.sendMessage(`§7  現在: ${getTargetMode()}`);
@@ -979,7 +979,7 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
   }
 
   if (m === "tag") {
-    world.sendMessage("§6[PVPマスター] §epvp_target §bタグのあるプレイヤーだけ §eを狙うモードにしました");
+    world.sendMessage("§6[PVPbot] §epvp_target §bタグのあるプレイヤーだけ §eを狙うモードにしました");
     // タグ付きプレイヤーがいるか確認して案内する
     let count = 0;
     try {
@@ -994,17 +994,17 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
       world.sendMessage(`§7  現在の対象: ${count}人`);
     }
   } else {
-    world.sendMessage("§6[PVPマスター] §e全プレイヤー §eを狙うモードに戻しました");
+    world.sendMessage("§6[PVPbot] §e全プレイヤー §eを狙うモードに戻しました");
   }
 });
 
 // ---------- コマンドによる武器変更 ----------
-// 使い方: /scriptevent pvp:weapon <アイテムID>  例: diamond_sword, netherite_axe, trident
+// 使い方: /scriptevent pvpbot:weapon <アイテムID>  例: diamond_sword, netherite_axe, trident
 system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvp:weapon") return;
+  if (ev.id !== "pvpbot:weapon") return;
   let id = (ev.message || "").trim().toLowerCase();
   if (id.length === 0) {
-    world.sendMessage("§c[PVPマスター] 使い方: /scriptevent pvp:weapon <アイテムID>");
+    world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:weapon <アイテムID>");
     world.sendMessage("§7  例: diamond_sword / netherite_axe / iron_sword / stick");
     world.sendMessage("§7  ※trident等の一部は装備されても見た目が表示されない場合あり");
     world.sendMessage(`§7  現在の武器: ${getWeaponId()}`);
@@ -1015,13 +1015,13 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
   try {
     new ItemStack(id, 1);
   } catch {
-    world.sendMessage(`§c[PVPマスター] アイテムID「${id}」が見つかりません`);
+    world.sendMessage(`§c[PVPbot] アイテムID「${id}」が見つかりません`);
     return;
   }
   world.setDynamicProperty("pvp_weapon", id);
   // 描画されないアイテムは、先にその旨を正直に伝える
   if (RENDER_LIMITED.has(id)) {
-    world.sendMessage(`§e[PVPマスター] 注意: §b${id.replace("minecraft:", "")} §eはマイクラの仕様で、Mobが手に持った見た目が表示されないことがあります`);
+    world.sendMessage(`§e[PVPbot] 注意: §b${id.replace("minecraft:", "")} §eはマイクラの仕様で、Mobが手に持った見た目が表示されないことがあります`);
     world.sendMessage(`§7  装備と攻撃力は反映されています(素手に見えても${id.replace("minecraft:", "")}の威力で殴ってきます)`);
   }
   // 先に持ち替えを実行し、実際の結果を確認してから報告する
@@ -1040,11 +1040,11 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
   }
   const short = id.replace("minecraft:", "");
   if (total === 0) {
-    world.sendMessage(`§6[PVPマスター] §e武器を §b${short} §eに設定しました(次にスポーンした個体から反映)`);
+    world.sendMessage(`§6[PVPbot] §e武器を §b${short} §eに設定しました(次にスポーンした個体から反映)`);
   } else if (done === total) {
-    world.sendMessage(`§6[PVPマスター] §e武器を §b${short} §eに変更しました(${done}体)`);
+    world.sendMessage(`§6[PVPbot] §e武器を §b${short} §eに変更しました(${done}体)`);
   } else {
-    world.sendMessage(`§c[PVPマスター] ${total}体中${done}体しか持ち替えられませんでした`);
+    world.sendMessage(`§c[PVPbot] ${total}体中${done}体しか持ち替えられませんでした`);
     world.sendMessage(`§7  5秒ごとに自動で再適用されます。直らない場合は個体を出し直してください`);
   }
   // 実際の手持ちを読み取れる環境なら、確認結果も表示する
@@ -1085,7 +1085,7 @@ world.afterEvents.entitySpawn.subscribe((ev) => {
     system.runTimeout(() => { try { equipWeapon(e); syncSkin(e); updateName(e); } catch {} }, 10);
     const h = e.getComponent("minecraft:health");
     if (h) system.runTimeout(() => { try { h.resetToMaxValue(); } catch {} }, 5);
-    world.sendMessage(`§e最強PVPマスター（${LEVELS[getLevel()].name}）がゲームに入室しました`);
+    world.sendMessage(`§ePVPbot（${LEVELS[getLevel()].name}）がゲームに入室しました`);
   } catch {}
 });
 
@@ -1107,7 +1107,7 @@ world.afterEvents.entityDie.subscribe((ev) => {
       }
     }
     states.delete(dead.id);
-    const botName = dead.nameTag || "最強PVPマスター";
+    const botName = dead.nameTag || "PVPbot";
     if (killer && killer.typeId === "minecraft:player") {
       world.sendMessage(`§f${botName}は${killer.name}に殺害された`);
     } else if (killer) {

@@ -1,7 +1,7 @@
-entity.pvp:master.name=Ultimate PVP Master
-item.spawn_egg.entity.pvp:master.name=Spawn Ultimate PVP Master
-最強PVPマスター（見習い）=PVP Master (Apprentice)
-最強PVPマスター（兵士）=PVP Master (Soldier)
-最強PVPマスター（騎士）=PVP Master (Knight)
-最強PVPマスター（剣聖）=PVP Master (Sword Saint)
-最強PVPマスター（魔王級）=PVP Master (Demon Lord)
+entity.pvp:master.name=PVPbot
+item.spawn_egg.entity.pvp:master.name=PVPbot Spawn Egg
+PVPbot（見習い）=PVPbot (Apprentice)
+PVPbot（兵士）=PVPbot (Soldier)
+PVPbot（騎士）=PVPbot (Knight)
+PVPbot（剣聖）=PVPbot (Sword Saint)
+PVPbot（魔王級）=PVPbot (Demon Lord)
