@@ -3,7 +3,7 @@
   "minecraft:entity": {
     "description": {
       "identifier": "pvp:master",
-      "is_spawnable": true,
+      "is_spawnable": false,
       "is_summonable": true,
       "properties": {
         "pvp:skin_level": {
@@ -187,6 +187,31 @@
       }
     },
     "events": {
+      "pvp:set_level_1": {
+        "set_property": {
+          "pvp:skin_level": 1
+        }
+      },
+      "pvp:set_level_2": {
+        "set_property": {
+          "pvp:skin_level": 2
+        }
+      },
+      "pvp:set_level_3": {
+        "set_property": {
+          "pvp:skin_level": 3
+        }
+      },
+      "pvp:set_level_4": {
+        "set_property": {
+          "pvp:skin_level": 4
+        }
+      },
+      "pvp:set_level_5": {
+        "set_property": {
+          "pvp:skin_level": 5
+        }
+      },
       "pvp:set_target_all": {
         "add": {
           "component_groups": [

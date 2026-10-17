@@ -2,11 +2,18 @@
 //  PVPbot - AIスクリプト v3
 //  機能: 追跡 / ストレイフ&クリティカル / 自己回復 /
 //        水バケツMLG / ブロック破壊 / 勝敗判定 /
-//        コマンドによる強さレベル調整 (/scriptevent pvpbot:level N)
+//        召喚イベントと5種類のレベル別スポーンエッグに対応
 // ============================================================
-import { world, system, GameMode, EquipmentSlot, ItemStack } from "@minecraft/server";
+import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
 
 const MASTER_ID = "pvp:master";
+const SPAWN_EGG_LEVELS = {
+  "pvpbot:spawn_egg_1": 1,
+  "pvpbot:spawn_egg_2": 2,
+  "pvpbot:spawn_egg_3": 3,
+  "pvpbot:spawn_egg_4": 4,
+  "pvpbot:spawn_egg_5": 5,
+};
 
 // ---------- 強さレベル定義 (1〜5) ----------
 // strength/resistance/health_boost は -1 でエフェクトなし
@@ -213,11 +220,14 @@ function applyTargetMode(master) {
   } catch {}
 }
 
-function getLevel() {
-  const v = world.getDynamicProperty("pvp_level");
-  return (typeof v === "number" && LEVELS[v]) ? v : DEFAULT_LEVEL;
+function getLevel(master) {
+  try {
+    const level = master.getProperty("pvp:skin_level");
+    if (typeof level === "number" && LEVELS[level]) return level;
+  } catch {}
+  return DEFAULT_LEVEL;
 }
-function cfg() { return LEVELS[getLevel()]; }
+function cfg(master) { return LEVELS[getLevel(master)]; }
 
 // ---------- 武器システム ----------
 // 使い方: /scriptevent pvpbot:weapon diamond_sword
@@ -232,14 +242,14 @@ function getWeaponId() {
 
 // 頭上に表示する名前をレベルに合わせる
 function updateName(master) {
-  const lv = getLevel();
+  const lv = getLevel(master);
   try {
     master.nameTag = `PVPbot（${LEVELS[lv].name}）`;
   } catch {}
 }
 
 function syncSkin(master) {
-  try { master.setProperty("pvp:skin_level", getLevel()); } catch {}
+  try { master.setProperty("pvp:skin_level", getLevel(master)); } catch {}
 }
 
 // 武器を持ち替えさせる。成功したら true を返す。
@@ -417,19 +427,13 @@ function nearestPlayer(dim, loc) {
 
 // レベルに応じたバフを付与(定期的に更新)
 function applyLevelBuffs(master) {
-  const c = cfg();
+  const c = cfg(master);
   try {
     if (c.strength >= 0) master.addEffect("strength", 100, { amplifier: c.strength, showParticles: false });
     if (c.resistance >= 0) master.addEffect("resistance", 100, { amplifier: c.resistance, showParticles: false });
     if (c.hboost >= 0) master.addEffect("health_boost", 100, { amplifier: c.hboost, showParticles: false });
   } catch {}
 }
-function clearLevelBuffs(master) {
-  for (const e of ["strength", "resistance", "health_boost", "speed"]) {
-    try { master.removeEffect(e); } catch {}
-  }
-}
-
 // ---------- メインAIループ (毎tick) ----------
 system.runInterval(() => {
   const refreshBuffs = system.currentTick % 40 === 0;
@@ -449,7 +453,7 @@ system.runInterval(() => {
 
 function aiTick(master, dim, dimId) {
   const s = getState(master);
-  const c = cfg();
+  const c = cfg(master);
   if (s.healCd > 0) s.healCd--;
   if (s.strafeCd > 0) s.strafeCd--;
   if (s.breakCd > 0) s.breakCd--;
@@ -892,35 +896,6 @@ system.runInterval(() => {
   }
 }, 600);
 
-// ---------- コマンドによる強さ調整 ----------
-// 使い方: /scriptevent pvpbot:level 4   (1〜5)
-system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvpbot:level") return;
-  const n = parseInt(ev.message, 10);
-  if (!LEVELS[n]) {
-    world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:level <1〜5>");
-    world.sendMessage("§7  1=見習い 2=兵士 3=騎士(標準) 4=剣聖 5=魔王級");
-    return;
-  }
-  world.setDynamicProperty("pvp_level", n);
-  world.sendMessage(`§6[PVPbot] §e強さレベルを §c${n} (${LEVELS[n].name}) §eに設定しました`);
-  // 既存の個体に即反映(バフを一度リセットして再付与+全回復)
-  for (const dimId of DIMENSIONS) {
-    try {
-      const dim = world.getDimension(dimId);
-      for (const m of dim.getEntities({ type: MASTER_ID })) {
-        clearLevelBuffs(m);
-        applyLevelBuffs(m);
-        syncSkin(m);
-        updateName(m);
-        const h = m.getComponent("minecraft:health");
-        if (h) h.resetToMaxValue();
-        dim.playSound("random.anvil_use", m.location);
-      }
-    } catch {}
-  }
-});
-
 // 手に持たせても見た目が表示されないことがあるアイテム(ゲーム本体の描画仕様)。
 // スロットへの装備と攻撃力は正しく反映されるが、モデルが描画されない。
 const RENDER_LIMITED = new Set([
@@ -1080,22 +1055,133 @@ if (world.afterEvents.entityLoad) {
 world.afterEvents.entitySpawn.subscribe((ev) => {
   const e = ev.entity;
   if (!e || e.typeId !== MASTER_ID) return;
+
   try {
-    applyLevelBuffs(e);
-    system.runTimeout(() => { try { equipWeapon(e); syncSkin(e); updateName(e); } catch {} }, 10);
-    const h = e.getComponent("minecraft:health");
-    if (h) system.runTimeout(() => { try { h.resetToMaxValue(); } catch {} }, 5);
-    world.sendMessage(`§ePVPbot（${LEVELS[getLevel()].name}）がゲームに入室しました`);
-  } catch {}
+    world.sendMessage(`§ePVPbot（${LEVELS[getLevel(e)].name}）がゲームに入室しました`);
+  } catch (error) {
+    console.warn(`[PVPbot] 入室メッセージを送信できませんでした: ${error}`);
+  }
+
+  try {
+    system.runTimeout(() => {
+      try {
+        applyLevelBuffs(e);
+        equipWeapon(e);
+        syncSkin(e);
+        updateName(e);
+        const h = e.getComponent("minecraft:health");
+        if (h) h.resetToMaxValue();
+      } catch (error) {
+        console.warn(`[PVPbot] スポーン時の初期化に失敗しました: ${error}`);
+      }
+    }, 10);
+  } catch (error) {
+    console.warn(`[PVPbot] スポーン時の初期化を予約できませんでした: ${error}`);
+  }
+});
+
+// Level-specific custom spawn eggs set the entity's level before its normal initialization.
+world.beforeEvents.itemUseOn.subscribe((ev) => {
+  const level = SPAWN_EGG_LEVELS[ev.itemStack.typeId];
+  if (!level || ev.source.typeId !== "minecraft:player") return;
+
+  ev.cancel = true;
+  const player = ev.source;
+  const dimension = ev.block.dimension;
+  const location = { ...ev.block.location };
+  switch (ev.blockFace) {
+    case Direction.Up: location.y += 1; break;
+    case Direction.Down: location.y -= 1; break;
+    case Direction.North: location.z -= 1; break;
+    case Direction.South: location.z += 1; break;
+    case Direction.West: location.x -= 1; break;
+    case Direction.East: location.x += 1; break;
+  }
+  const eggId = ev.itemStack.typeId;
+
+  system.run(() => {
+    try {
+      const master = dimension.spawnEntity(MASTER_ID, location);
+      master.triggerEvent(`pvp:set_level_${level}`);
+
+      if (player.getGameMode() !== GameMode.creative) {
+        const equippable = player.getComponent("minecraft:equippable");
+        const held = equippable && equippable.getEquipment(EquipmentSlot.Mainhand);
+        if (held && held.typeId === eggId) {
+          if (held.amount <= 1) {
+            equippable.setEquipment(EquipmentSlot.Mainhand, undefined);
+          } else {
+            held.amount--;
+            equippable.setEquipment(EquipmentSlot.Mainhand, held);
+          }
+        }
+      }
+    } catch (error) {
+      player.sendMessage(`§c[PVPbot] スポーンエッグを使用できませんでした: ${error}`);
+    }
+  });
 });
 
 // ---------- 死亡時の処理 ----------
 world.afterEvents.entityDie.subscribe((ev) => {
   const dead = ev.deadEntity;
-  const killer = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
   if (!dead) return;
 
   if (dead.typeId === MASTER_ID) {
+    let killer;
+    let botName = "PVPbot";
+    let cause;
+    try { killer = ev.damageSource && ev.damageSource.damagingEntity; } catch {}
+    try { botName = dead.nameTag || botName; } catch {}
+    try { cause = ev.damageSource && ev.damageSource.cause; } catch {}
+
+    const causes = {
+      anvil: "金床に押しつぶされた",
+      blockExplosion: "爆発で倒された",
+      drowning: "溺死した",
+      entityExplosion: "爆発で倒された",
+      fall: "落下死した",
+      fallingBlock: "落下ブロックに押しつぶされた",
+      fire: "火で焼け死んだ",
+      fireTick: "火で焼け死んだ",
+      fireworks: "花火で倒された",
+      flyIntoWall: "壁に激突して倒れた",
+      freezing: "凍死した",
+      lava: "溶岩で焼け死んだ",
+      lightning: "雷に打たれた",
+      magic: "魔法で倒された",
+      magma: "マグマブロックで倒れた",
+      projectile: "飛び道具で倒された",
+      stalactite: "鍾乳石に貫かれた",
+      stalagmite: "尖った鍾乳石に貫かれた",
+      starve: "飢え死にした",
+      suffocation: "窒息死した",
+      void: "奈落に落ちた",
+      wither: "衰弱して倒れた",
+      sonicBoom: "ソニックブームで倒された",
+      maceSmash: "メイスで叩きつぶされた",
+    };
+    let deathMessage = `§f${botName}は倒された`;
+    try {
+      if (killer && killer.typeId === "minecraft:player") {
+        deathMessage = `§f${botName}は${killer.name}に殺害された`;
+      } else if (killer) {
+        const killerName = killer.nameTag || killer.typeId;
+        deathMessage = `§f${botName}は${killerName}に倒された`;
+      } else {
+        deathMessage = `§f${botName}は${causes[cause] || `${cause || "不明な原因"}で倒された`}`;
+      }
+    } catch (error) {
+      console.warn(`[PVPbot] 死因を取得できませんでした: ${error}`);
+    }
+    for (const message of [deathMessage, `§e${botName}がゲームを退出しました`]) {
+      try {
+        world.sendMessage(message);
+      } catch (error) {
+        console.warn(`[PVPbot] 退出メッセージを送信できませんでした: ${error}`);
+      }
+    }
+
     // 死ぬ前にMLGで置いた水が残らないよう、先に回収する
     const st = states.get(dead.id);
     if (st) {
@@ -1107,46 +1193,10 @@ world.afterEvents.entityDie.subscribe((ev) => {
       }
     }
     states.delete(dead.id);
-    const botName = dead.nameTag || "PVPbot";
-    if (killer && killer.typeId === "minecraft:player") {
-      world.sendMessage(`§f${botName}は${killer.name}に殺害された`);
-    } else if (killer) {
-      const killerName = killer.nameTag || killer.typeId;
-      world.sendMessage(`§f${botName}は${killerName}に倒された`);
-    } else {
-      const causes = {
-        anvil: "金床に押しつぶされた",
-        blockExplosion: "爆発で倒された",
-        drowning: "溺死した",
-        entityExplosion: "爆発で倒された",
-        fall: "落下死した",
-        fallingBlock: "落下ブロックに押しつぶされた",
-        fire: "火で焼け死んだ",
-        fireTick: "火で焼け死んだ",
-        fireworks: "花火で倒された",
-        flyIntoWall: "壁に激突して倒れた",
-        freezing: "凍死した",
-        lava: "溶岩で焼け死んだ",
-        lightning: "雷に打たれた",
-        magic: "魔法で倒された",
-        magma: "マグマブロックで倒れた",
-        projectile: "飛び道具で倒された",
-        stalactite: "鍾乳石に貫かれた",
-        stalagmite: "尖った鍾乳石に貫かれた",
-        starve: "飢え死にした",
-        suffocation: "窒息死した",
-        void: "奈落に落ちた",
-        wither: "衰弱して倒れた",
-        sonicBoom: "ソニックブームで倒された",
-        maceSmash: "メイスで叩きつぶされた",
-      };
-      const cause = ev.damageSource && ev.damageSource.cause;
-      world.sendMessage(`§f${botName}は${causes[cause] || `${cause || "不明な原因"}で倒された`}`);
-    }
-    world.sendMessage(`§e${botName}がゲームを退出しました`);
     return;
   }
 
+  const killer = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
   if (dead.typeId === "minecraft:player" && killer && killer.typeId === MASTER_ID) {
     try {
       // マスターの全回復は演出ではなく仕様なので、設定に関わらず行う

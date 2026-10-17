@@ -1,5 +1,9 @@
 entity.pvp:master.name=PVPbot
-item.spawn_egg.entity.pvp:master.name=PVPbotのスポーンエッグ
+item.pvpbot:spawn_egg_1.name=PVPbotのスポーンエッグ（見習い）
+item.pvpbot:spawn_egg_2.name=PVPbotのスポーンエッグ（兵士）
+item.pvpbot:spawn_egg_3.name=PVPbotのスポーンエッグ（騎士）
+item.pvpbot:spawn_egg_4.name=PVPbotのスポーンエッグ（剣聖）
+item.pvpbot:spawn_egg_5.name=PVPbotのスポーンエッグ（魔王級）
 PVPbot（見習い）=PVPbot（見習い）
 PVPbot（兵士）=PVPbot（兵士）
 PVPbot（騎士）=PVPbot（騎士）

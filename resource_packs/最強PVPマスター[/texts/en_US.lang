@@ -1,5 +1,9 @@
 entity.pvp:master.name=PVPbot
-item.spawn_egg.entity.pvp:master.name=PVPbot Spawn Egg
+item.pvpbot:spawn_egg_1.name=PVPbot Spawn Egg (Apprentice)
+item.pvpbot:spawn_egg_2.name=PVPbot Spawn Egg (Soldier)
+item.pvpbot:spawn_egg_3.name=PVPbot Spawn Egg (Knight)
+item.pvpbot:spawn_egg_4.name=PVPbot Spawn Egg (Sword Saint)
+item.pvpbot:spawn_egg_5.name=PVPbot Spawn Egg (Demon Lord)
 PVPbot（見習い）=PVPbot (Apprentice)
 PVPbot（兵士）=PVPbot (Soldier)
 PVPbot（騎士）=PVPbot (Knight)

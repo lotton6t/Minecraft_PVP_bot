@@ -1,0 +1,21 @@
+{
+  "resource_pack_name": "PVPbot",
+  "texture_name": "atlas.items",
+  "texture_data": {
+    "pvpbot_spawn_egg_1": {
+      "textures": "textures/items/pvpbot_spawn_egg_1"
+    },
+    "pvpbot_spawn_egg_2": {
+      "textures": "textures/items/pvpbot_spawn_egg_2"
+    },
+    "pvpbot_spawn_egg_3": {
+      "textures": "textures/items/pvpbot_spawn_egg_3"
+    },
+    "pvpbot_spawn_egg_4": {
+      "textures": "textures/items/pvpbot_spawn_egg_4"
+    },
+    "pvpbot_spawn_egg_5": {
+      "textures": "textures/items/pvpbot_spawn_egg_5"
+    }
+  }
+}
