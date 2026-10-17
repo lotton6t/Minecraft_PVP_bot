@@ -1,0 +1,17 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.pvp_master.look_at_target": {
+      "loop": true,
+      "bones": {
+        "head": {
+          "rotation": [
+            "query.property('pvp:head_pitch')",
+            "query.property('pvp:head_yaw')",
+            0
+          ]
+        }
+      }
+    }
+  }
+}

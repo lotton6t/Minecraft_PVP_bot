@@ -85,6 +85,16 @@ function setInventoryBucket(master, itemId)
   );
 }
 
+function setWaterMlgLookDown(master, state, enabled)
+{
+  state.waterMlgLookDown = enabled;
+}
+
+function lookDownDuringWaterMlg(master, state)
+{
+  setWaterMlgLookDown(master, state, true);
+}
+
 function ensureWaterBucketInventory(master) {
   const inventory = master.getComponent("minecraft:inventory");
   if (!inventory || !inventory.container) {
@@ -132,6 +142,7 @@ function cleanupWater(state, master) {
     state.waterMlgPhase = "recovered";
     state.waterMlgTicks = 6;
     state.waterMlgLatched = true;
+    setWaterMlgLookDown(master, state, false);
   }
   return waterRecovered;
 }
@@ -177,9 +188,16 @@ function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
   const velocity = master.getVelocity();
   const isFalling = velocity.y < -0.55 && !master.isInWater && dimId !== "nether";
 
+  if (state.waterMlgPhase === "armed" || state.waterMlgPhase === "placed") {
+    lookDownDuringWaterMlg(master, state);
+  }
+
   if (state.waterMlgPhase === "recovered") {
     if (!recoveredThisTick) state.waterMlgTicks--;
-    if (state.waterMlgTicks <= 0) state.waterMlgPhase = "idle";
+    if (state.waterMlgTicks <= 0) {
+      state.waterMlgPhase = "idle";
+      setWaterMlgLookDown(master, state, false);
+    }
     return;
   }
 
@@ -191,32 +209,38 @@ function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
   if (state.waterMlgPhase === "placed") return;
   if (!isFalling) {
     state.waterMlgPhase = "idle";
+    setWaterMlgLookDown(master, state, false);
     return;
   }
 
   let landing = findMlgGroundBlock(master, dim, 20);
   if (!landing || landing.distance > 20) {
     state.waterMlgPhase = "idle";
+    setWaterMlgLookDown(master, state, false);
     return;
   }
 
   if (state.waterMlgPhase !== "armed") {
     ensureWaterBucketInventory(master);
     state.waterMlgPhase = "armed";
+    lookDownDuringWaterMlg(master, state);
     return;
   }
 
   landing = findMlgGroundBlock(master, dim, 20);
   if (!landing || landing.distance > 20) {
     state.waterMlgPhase = "idle";
+    setWaterMlgLookDown(master, state, false);
     return;
   }
 
   if (landing.distance <= 3.5) {
     try {
       placeWaterForMlg(master, dim, dimId, state, landing.block, isEditProtected);
+      if (state.waterMlgPhase === "placed") lookDownDuringWaterMlg(master, state);
     } catch (error) {
       state.waterMlgPhase = "idle";
+      setWaterMlgLookDown(master, state, false);
       console.warn(`[PVPbot] 落下時の水設置に失敗しました: ${error}`);
     }
   }
@@ -226,7 +250,7 @@ function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
 world.afterEvents.playerSpawn.subscribe((ev) => {
   if (!ev.initialSpawn) return;
   try {
-    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.20 を読み込みました");
+    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.24 を読み込みました");
   } catch (error) {
     console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
   }
@@ -496,6 +520,62 @@ function getMainhandMode(master, state) {
   if (state.waterMlgPhase === "armed" || state.waterMlgPhase === "recovered") return "falling";
   if (state.waterMlgPhase === "placed") return "fallingEmpty";
   return state.healing ? "recovery" : "combat";
+}
+
+function updateHeadPose(master, state) {
+  try {
+    const fallingLook = state.waterMlgLookDown;
+    const target = state.cachedTarget && state.cachedTarget.player;
+    let targetPitch = fallingLook ? 90 : 0;
+    let targetYaw = 0;
+    if (!fallingLook && target && target.isValid) {
+      const source = master.location;
+      const destination = target.location;
+      const dx = destination.x - source.x;
+      const dy = destination.y - source.y;
+      const dz = destination.z - source.z;
+      const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+      const bodyYaw = master.getRotation().y;
+      const targetDirectionYaw = Math.atan2(-dx, dz) * 180 / Math.PI;
+      targetPitch = Math.max(-60, Math.min(60,
+        -Math.atan2(dy, horizontalDistance) * 180 / Math.PI));
+      targetYaw = targetDirectionYaw - bodyYaw;
+      targetYaw = ((targetYaw + 180) % 360 + 360) % 360 - 180;
+      targetYaw = Math.max(-90, Math.min(90, targetYaw));
+    }
+
+    if (!Number.isFinite(state.headPitch)) {
+      const currentPitch = master.getProperty("pvp:head_pitch");
+      state.headPitch = Number.isFinite(currentPitch) ? currentPitch : 0;
+    }
+    if (!Number.isFinite(state.headYaw)) {
+      const currentYaw = master.getProperty("pvp:head_yaw");
+      state.headYaw = Number.isFinite(currentYaw) ? currentYaw : 0;
+    }
+
+    const pitchDelta = targetPitch - state.headPitch;
+    const yawDelta = targetYaw - state.headYaw;
+    const pitch = Math.abs(pitchDelta) < 0.5
+      ? targetPitch
+      : state.headPitch + pitchDelta * 0.2;
+    const yaw = Math.abs(yawDelta) < 0.5
+      ? targetYaw
+      : state.headYaw + yawDelta * 0.2;
+
+    if (state.headPitch !== pitch) {
+      master.setProperty("pvp:head_pitch", pitch);
+      state.headPitch = pitch;
+    }
+    if (state.headYaw !== yaw) {
+      master.setProperty("pvp:head_yaw", yaw);
+      state.headYaw = yaw;
+    }
+  } catch (error) {
+    if (!state.headPoseErrorLogged) {
+      console.warn(`[PVPbot] 頭部角度を更新できませんでした: ${error}`);
+      state.headPoseErrorLogged = true;
+    }
+  }
 }
 
 function updateMainhandMode(master, force = false) {
@@ -947,6 +1027,11 @@ system.runInterval(() => {
         tickWaterBucket(master, dim, dimId, getState(master), isEditProtected);
       } catch (error) {
         console.error(`[PVPbot] 落下モード更新に失敗しました: ${error}`);
+      }
+      try {
+        updateHeadPose(master, getState(master));
+      } catch (error) {
+        console.error(`[PVPbot] 頭部姿勢の更新に失敗しました: ${error}`);
       }
       try {
         updateMainhandMode(master);

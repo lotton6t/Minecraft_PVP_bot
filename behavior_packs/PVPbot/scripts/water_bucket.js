@@ -35,6 +35,16 @@ function setInventoryBucket(master, itemId)
   );
 }
 
+function setWaterMlgLookDown(master, state, enabled)
+{
+  state.waterMlgLookDown = enabled;
+}
+
+function lookDownDuringWaterMlg(master, state)
+{
+  setWaterMlgLookDown(master, state, true);
+}
+
 export function ensureWaterBucketInventory(master) {
   const inventory = master.getComponent("minecraft:inventory");
   if (!inventory || !inventory.container) {
@@ -82,6 +92,7 @@ function cleanupWater(state, master) {
     state.waterMlgPhase = "recovered";
     state.waterMlgTicks = 6;
     state.waterMlgLatched = true;
+    setWaterMlgLookDown(master, state, false);
   }
   return waterRecovered;
 }
@@ -127,9 +138,16 @@ export function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
   const velocity = master.getVelocity();
   const isFalling = velocity.y < -0.55 && !master.isInWater && dimId !== "nether";
 
+  if (state.waterMlgPhase === "armed" || state.waterMlgPhase === "placed") {
+    lookDownDuringWaterMlg(master, state);
+  }
+
   if (state.waterMlgPhase === "recovered") {
     if (!recoveredThisTick) state.waterMlgTicks--;
-    if (state.waterMlgTicks <= 0) state.waterMlgPhase = "idle";
+    if (state.waterMlgTicks <= 0) {
+      state.waterMlgPhase = "idle";
+      setWaterMlgLookDown(master, state, false);
+    }
     return;
   }
 
@@ -141,32 +159,38 @@ export function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
   if (state.waterMlgPhase === "placed") return;
   if (!isFalling) {
     state.waterMlgPhase = "idle";
+    setWaterMlgLookDown(master, state, false);
     return;
   }
 
   let landing = findMlgGroundBlock(master, dim, 20);
   if (!landing || landing.distance > 20) {
     state.waterMlgPhase = "idle";
+    setWaterMlgLookDown(master, state, false);
     return;
   }
 
   if (state.waterMlgPhase !== "armed") {
     ensureWaterBucketInventory(master);
     state.waterMlgPhase = "armed";
+    lookDownDuringWaterMlg(master, state);
     return;
   }
 
   landing = findMlgGroundBlock(master, dim, 20);
   if (!landing || landing.distance > 20) {
     state.waterMlgPhase = "idle";
+    setWaterMlgLookDown(master, state, false);
     return;
   }
 
   if (landing.distance <= 3.5) {
     try {
       placeWaterForMlg(master, dim, dimId, state, landing.block, isEditProtected);
+      if (state.waterMlgPhase === "placed") lookDownDuringWaterMlg(master, state);
     } catch (error) {
       state.waterMlgPhase = "idle";
+      setWaterMlgLookDown(master, state, false);
       console.warn(`[PVPbot] 落下時の水設置に失敗しました: ${error}`);
     }
   }

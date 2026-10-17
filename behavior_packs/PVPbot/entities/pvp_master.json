@@ -14,6 +14,18 @@
           ],
           "default": 3,
           "client_sync": true
+        },
+        "pvp:head_pitch": {
+          "type": "float",
+          "range": [-90.0, 90.0],
+          "default": 0.0,
+          "client_sync": true
+        },
+        "pvp:head_yaw": {
+          "type": "float",
+          "range": [-90.0, 90.0],
+          "default": 0.0,
+          "client_sync": true
         }
       }
     },

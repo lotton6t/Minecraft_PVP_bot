@@ -33,18 +33,16 @@
         ],
         "animate": [
           "humanoid_base_pose",
-          {
-            "look_at_target": "!query.is_sleeping && !query.is_swimming"
-          },
           "move",
           "bob",
           "holding",
-          "attack_controller"
+          "attack_controller",
+          "look_at_target"
         ]
       },
       "animations": {
         "humanoid_base_pose": "animation.humanoid.base_pose",
-        "look_at_target": "controller.animation.humanoid.look_at_target",
+        "look_at_target": "animation.pvp_master.look_at_target",
         "look_at_target_default": "animation.common.look_at_target.default",
         "look_at_target_gliding": "animation.humanoid.look_at_target.gliding",
         "look_at_target_swimming": "animation.humanoid.look_at_target.swimming",

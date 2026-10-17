@@ -11,7 +11,7 @@ import { ensureWaterBucketInventory, tickWaterBucket } from "./water_bucket.js";
 world.afterEvents.playerSpawn.subscribe((ev) => {
   if (!ev.initialSpawn) return;
   try {
-    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.20 を読み込みました");
+    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.24 を読み込みました");
   } catch (error) {
     console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
   }
@@ -281,6 +281,62 @@ function getMainhandMode(master, state) {
   if (state.waterMlgPhase === "armed" || state.waterMlgPhase === "recovered") return "falling";
   if (state.waterMlgPhase === "placed") return "fallingEmpty";
   return state.healing ? "recovery" : "combat";
+}
+
+function updateHeadPose(master, state) {
+  try {
+    const fallingLook = state.waterMlgLookDown;
+    const target = state.cachedTarget && state.cachedTarget.player;
+    let targetPitch = fallingLook ? 90 : 0;
+    let targetYaw = 0;
+    if (!fallingLook && target && target.isValid) {
+      const source = master.location;
+      const destination = target.location;
+      const dx = destination.x - source.x;
+      const dy = destination.y - source.y;
+      const dz = destination.z - source.z;
+      const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+      const bodyYaw = master.getRotation().y;
+      const targetDirectionYaw = Math.atan2(-dx, dz) * 180 / Math.PI;
+      targetPitch = Math.max(-60, Math.min(60,
+        -Math.atan2(dy, horizontalDistance) * 180 / Math.PI));
+      targetYaw = targetDirectionYaw - bodyYaw;
+      targetYaw = ((targetYaw + 180) % 360 + 360) % 360 - 180;
+      targetYaw = Math.max(-90, Math.min(90, targetYaw));
+    }
+
+    if (!Number.isFinite(state.headPitch)) {
+      const currentPitch = master.getProperty("pvp:head_pitch");
+      state.headPitch = Number.isFinite(currentPitch) ? currentPitch : 0;
+    }
+    if (!Number.isFinite(state.headYaw)) {
+      const currentYaw = master.getProperty("pvp:head_yaw");
+      state.headYaw = Number.isFinite(currentYaw) ? currentYaw : 0;
+    }
+
+    const pitchDelta = targetPitch - state.headPitch;
+    const yawDelta = targetYaw - state.headYaw;
+    const pitch = Math.abs(pitchDelta) < 0.5
+      ? targetPitch
+      : state.headPitch + pitchDelta * 0.2;
+    const yaw = Math.abs(yawDelta) < 0.5
+      ? targetYaw
+      : state.headYaw + yawDelta * 0.2;
+
+    if (state.headPitch !== pitch) {
+      master.setProperty("pvp:head_pitch", pitch);
+      state.headPitch = pitch;
+    }
+    if (state.headYaw !== yaw) {
+      master.setProperty("pvp:head_yaw", yaw);
+      state.headYaw = yaw;
+    }
+  } catch (error) {
+    if (!state.headPoseErrorLogged) {
+      console.warn(`[PVPbot] 頭部角度を更新できませんでした: ${error}`);
+      state.headPoseErrorLogged = true;
+    }
+  }
 }
 
 function updateMainhandMode(master, force = false) {
@@ -732,6 +788,11 @@ system.runInterval(() => {
         tickWaterBucket(master, dim, dimId, getState(master), isEditProtected);
       } catch (error) {
         console.error(`[PVPbot] 落下モード更新に失敗しました: ${error}`);
+      }
+      try {
+        updateHeadPose(master, getState(master));
+      } catch (error) {
+        console.error(`[PVPbot] 頭部姿勢の更新に失敗しました: ${error}`);
       }
       try {
         updateMainhandMode(master);
