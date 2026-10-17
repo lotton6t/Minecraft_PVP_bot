@@ -2,7 +2,7 @@
 
 Minecraft Bedrock Edition PVP bot add-on.
 
-The current behavior pack is `PVPbot [BP] 1.25.19`. After installing it, enable that pack in the world's Behavior Packs settings; the startup message is sent to a player when they first join the world.
+The current behavior pack is `PVPbot [BP] 1.25.20`. After installing it, enable that pack in the world's Behavior Packs settings; the startup message is sent to a player when they first join the world.
 
 ## Commands
 

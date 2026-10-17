@@ -226,7 +226,7 @@ function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
 world.afterEvents.playerSpawn.subscribe((ev) => {
   if (!ev.initialSpawn) return;
   try {
-    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.18 を読み込みました");
+    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.20 を読み込みました");
   } catch (error) {
     console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
   }
@@ -956,7 +956,6 @@ system.runInterval(() => {
       try {
         if (refreshBuffs) applyLevelBuffs(master);
         if (system.currentTick % 100 === 0) {
-          equipLevelArmor(master);
           equipOffhandShield(master);
           updateMainhandMode(master, true);
         }
