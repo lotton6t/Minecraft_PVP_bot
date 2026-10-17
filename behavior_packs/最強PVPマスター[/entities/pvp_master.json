@@ -29,6 +29,11 @@
         "always_show": true,
         "allow_name_tag_renaming": false
       },
+      "minecraft:inventory": {
+        "container_type": "inventory",
+        "inventory_size": 1,
+        "private": true
+      },
       "minecraft:persistent": {},
       "minecraft:health": {
         "value": 40,

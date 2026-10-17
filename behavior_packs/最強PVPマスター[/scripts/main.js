@@ -7,6 +7,8 @@
 import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
 
 const MASTER_ID = "pvp:master";
+const HEALING_ITEM_ID = "minecraft:golden_apple";
+const HEALING_ITEM_STACK_SIZE = 64;
 const SPAWN_EGG_LEVELS = {
   "pvpbot:spawn_egg_1": 1,
   "pvpbot:spawn_egg_2": 2,
@@ -239,6 +241,51 @@ function getWeaponId(master) {
   return master ? cfg(master).weapon : DEFAULT_WEAPON;
 }
 
+function getHealingInventory(master) {
+  const inventory = master.getComponent("minecraft:inventory");
+  if (!inventory || !inventory.container) {
+    throw new Error("Bot healing inventory is unavailable");
+  }
+  return inventory.container;
+}
+
+function initializeHealingInventory(master) {
+  try {
+    const container = getHealingInventory(master);
+    const item = container.getItem(0);
+    if (!item) {
+      container.setItem(0, new ItemStack(HEALING_ITEM_ID, HEALING_ITEM_STACK_SIZE));
+    } else if (item.typeId !== HEALING_ITEM_ID) {
+      throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
+    }
+  } catch (error) {
+    console.warn(`[PVPbot] 回復用インベントリの初期化に失敗しました: ${error}`);
+  }
+}
+
+function consumeHealingApple(master) {
+  const container = getHealingInventory(master);
+  const item = container.getItem(0);
+  if (!item || item.typeId !== HEALING_ITEM_ID || item.amount < 1) return false;
+  if (item.amount === 1) {
+    container.setItem(0, undefined);
+  } else {
+    item.amount--;
+    container.setItem(0, item);
+  }
+  return true;
+}
+
+function dropHealingApples(master) {
+  const container = getHealingInventory(master);
+  const item = container.getItem(0);
+  if (!item) return;
+  if (item.typeId !== HEALING_ITEM_ID) {
+    throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
+  }
+  master.dimension.spawnItem(new ItemStack(item.typeId, item.amount), master.location);
+}
+
 
 
 // 頭上に表示する名前をレベルに合わせる
@@ -260,6 +307,7 @@ function syncSkin(master) {
 // 手持ちと食い違う環境がある(武器によって片方しか効かない症状の原因)。
 // どちらも同じ武器に置き換えるだけなので、二重に実行しても害はない。
 function equipWeapon(master) {
+  if (getState(master).healing) return false;
   const id = getWeaponId(master);
   const short = id.replace("minecraft:", "");
   let ok = false;
@@ -417,7 +465,7 @@ const states = new Map();
 function getState(entity) {
   let s = states.get(entity.id);
   if (!s) {
-    s = { healCd: 0, strafeCd: 0, breakCd: 0, mlgCd: 0, pillarCd: 0, stuckTicks: 0,
+    s = { healCd: 0, healing: false, strafeCd: 0, breakCd: 0, mlgCd: 0, pillarCd: 0, stuckTicks: 0,
           lastPos: null, placedWater: [], pillar: null, scanCd: 0, cachedTarget: null,
           dropCd: 0, bridgeCd: 0 };
     states.set(entity.id, s);
@@ -465,7 +513,7 @@ system.runInterval(() => {
     for (const master of dim.getEntities({ type: MASTER_ID })) {
       try {
         if (refreshBuffs) applyLevelBuffs(master);
-        if (system.currentTick % 100 === 0) equipWeapon(master); // 5秒ごとに武器を強制適用
+        if (system.currentTick % 100 === 0 && !getState(master).healing) equipWeapon(master); // 5秒ごとに武器を強制適用
         lavaDamageTick(master, dim);
         aiTick(master, dim, dimId);
       } catch { /* チャンク未ロード等は無視 */ }
@@ -527,7 +575,23 @@ function aiTick(master, dim, dimId) {
 
   // ---- 自己回復: 立ち止まって食べる ----
   const hp = master.getComponent("minecraft:health");
-  if (hp && s.healCd <= 0 && hp.currentValue < hp.effectiveMax * c.healThr) {
+  if (hp && !s.healing && s.healCd <= 0 && hp.currentValue < hp.effectiveMax * c.healThr) {
+    try {
+      const result = master.runCommand("replaceitem entity @s slot.weapon.mainhand 0 golden_apple 1");
+      if (result.successCount < 1 || !consumeHealingApple(master)) {
+        s.healCd = c.healCd;
+        equipWeapon(master);
+        return;
+      }
+    } catch (error) {
+      s.healCd = c.healCd;
+      console.warn(`[PVPbot] 回復アイテムへの持ち替えに失敗しました: ${error}`);
+      try { equipWeapon(master); } catch (restoreError) {
+        console.warn(`[PVPbot] 回復開始失敗後に武器を戻せませんでした: ${restoreError}`);
+      }
+      return;
+    }
+    s.healing = true;
     s.healCd = c.healCd;
     master.addEffect("slowness", 30, { amplifier: 5, showParticles: false });
     master.addEffect("weakness", 30, { amplifier: 5, showParticles: false });
@@ -545,7 +609,14 @@ function aiTick(master, dim, dimId) {
         master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
         master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
         master.dimension.playSound("random.burp", master.location);
-      } catch {}
+      } catch (error) {
+        console.warn(`[PVPbot] 回復処理に失敗しました: ${error}`);
+      } finally {
+        s.healing = false;
+        try { equipWeapon(master); } catch (error) {
+          console.warn(`[PVPbot] 回復後に武器を戻せませんでした: ${error}`);
+        }
+      }
     }, 30);
   }
 
@@ -1069,6 +1140,7 @@ if (world.afterEvents.entityLoad) {
         applyLevelBuffs(e);
         applyTargetMode(e);
       } catch {}
+      initializeHealingInventory(e);
     }, 10);
   });
 }
@@ -1088,6 +1160,7 @@ world.afterEvents.entitySpawn.subscribe((ev) => {
     system.runTimeout(() => {
       try {
         applyLevelBuffs(e);
+        initializeHealingInventory(e);
         equipWeapon(e);
         equipLevelArmor(e);
         equipOffhandShield(e);
@@ -1152,6 +1225,12 @@ world.afterEvents.entityDie.subscribe((ev) => {
   if (!dead) return;
 
   if (dead.typeId === MASTER_ID) {
+    try {
+      dropHealingApples(dead);
+    } catch (error) {
+      console.warn(`[PVPbot] 死亡時に残りの金のリンゴをドロップできませんでした: ${error}`);
+    }
+
     let killer;
     let botName = "PVPbot";
     let cause;
