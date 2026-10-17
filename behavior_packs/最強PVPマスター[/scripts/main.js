@@ -5,15 +5,54 @@
 //        召喚イベントと5種類のレベル別スポーンエッグに対応
 // ============================================================
 import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
+const INVENTORY_CONFIG = {
+  defaultWeapon: "minecraft:netherite_sword",
+  shield: "minecraft:shield",
+  armorSlots: [
+    { slot: "head", suffix: "helmet" },
+    { slot: "chest", suffix: "chestplate" },
+    { slot: "legs", suffix: "leggings" },
+    { slot: "feet", suffix: "boots" },
+  ],
+  levels: {
+    1: {
+      weapon: "minecraft:iron_sword",
+      armor: "iron",
+      healingItem: { id: "minecraft:cooked_beef", amount: 16 },
+    },
+    2: {
+      weapon: "minecraft:diamond_sword",
+      armor: "diamond",
+      healingItem: { id: "minecraft:golden_carrot", amount: 64 },
+    },
+    3: {
+      weapon: "minecraft:diamond_sword",
+      armor: "diamond",
+      healingItem: { id: "minecraft:golden_apple", amount: 64 },
+    },
+    4: {
+      weapon: "minecraft:netherite_sword",
+      armor: "netherite",
+      healingItem: { id: "minecraft:golden_apple", amount: 64 },
+    },
+    5: {
+      weapon: "minecraft:netherite_sword",
+      armor: "netherite",
+      healingItem: { id: "minecraft:golden_apple", amount: 64 },
+    },
+  },
+};
+
+
+system.run(() => {
+  try {
+    world.sendMessage("§a[PVPbot] スクリプト v1.24.0 を読み込みました");
+  } catch (error) {
+    console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
+  }
+});
 
 const MASTER_ID = "pvp:master";
-const HEALING_ITEMS = {
-  1: { id: "minecraft:cooked_beef", amount: 16 },
-  2: { id: "minecraft:golden_carrot", amount: 64 },
-  3: { id: "minecraft:golden_apple", amount: 64 },
-  4: { id: "minecraft:golden_apple", amount: 64 },
-  5: { id: "minecraft:golden_apple", amount: 64 },
-};
 const SPAWN_EGG_LEVELS = {
   "pvpbot:spawn_egg_1": 1,
   "pvpbot:spawn_egg_2": 2,
@@ -25,11 +64,11 @@ const SPAWN_EGG_LEVELS = {
 // ---------- 強さレベル定義 (1〜5) ----------
 // strength/resistance/health_boost は -1 でエフェクトなし
 const LEVELS = {
-  1: { name: "見習い",   weapon: "minecraft:iron_sword",      armor: "iron",      strength: -1, resistance: -1, hboost: -1, healAmt: 6,  healThr: 0.45, healCd: 240, crit: 0.15, strafePow: 0.30 },
-  2: { name: "兵士",     weapon: "minecraft:diamond_sword",   armor: "diamond",   strength: -1, resistance: -1, hboost: 0,  healAmt: 8,  healThr: 0.55, healCd: 200, crit: 0.25, strafePow: 0.35 },
-  3: { name: "騎士",     weapon: "minecraft:diamond_sword",   armor: "diamond",   strength: 0,  resistance: -1, hboost: 1,  healAmt: 10, healThr: 0.65, healCd: 160, crit: 0.35, strafePow: 0.40 },
-  4: { name: "剣聖",     weapon: "minecraft:netherite_sword", armor: "netherite", strength: 0,  resistance: 0,  hboost: 3,  healAmt: 12, healThr: 0.70, healCd: 130, crit: 0.45, strafePow: 0.45 },
-  5: { name: "魔王級",   weapon: "minecraft:netherite_sword", armor: "netherite", strength: 1,  resistance: 1,  hboost: 5,  healAmt: 15, healThr: 0.75, healCd: 100, crit: 0.55, strafePow: 0.50 },
+  1: { name: "見習い",   strength: -1, resistance: -1, hboost: -1, healAmt: 6,  healThr: 0.45, healCd: 240, crit: 0.15, strafePow: 0.30 },
+  2: { name: "兵士",     strength: -1, resistance: -1, hboost: 0,  healAmt: 8,  healThr: 0.55, healCd: 200, crit: 0.25, strafePow: 0.35 },
+  3: { name: "騎士",     strength: 0,  resistance: -1, hboost: 1,  healAmt: 10, healThr: 0.65, healCd: 160, crit: 0.35, strafePow: 0.40 },
+  4: { name: "剣聖",     strength: 0,  resistance: 0,  hboost: 3,  healAmt: 12, healThr: 0.70, healCd: 130, crit: 0.45, strafePow: 0.45 },
+  5: { name: "魔王級",   strength: 1,  resistance: 1,  hboost: 5,  healAmt: 15, healThr: 0.75, healCd: 100, crit: 0.55, strafePow: 0.50 },
 };
 const DEFAULT_LEVEL = 3;
 
@@ -238,12 +277,12 @@ function cfg(master) { return LEVELS[getLevel(master)]; }
 
 // ---------- 武器システム ----------
 // 使い方: /scriptevent pvpbot:weapon diamond_sword
-const DEFAULT_WEAPON = "minecraft:netherite_sword";
-
 function getWeaponId(master) {
   const v = world.getDynamicProperty("pvp_weapon");
   if (typeof v === "string" && v.length > 0) return v;
-  return master ? cfg(master).weapon : DEFAULT_WEAPON;
+  return master
+    ? INVENTORY_CONFIG.levels[getLevel(master)].weapon
+    : INVENTORY_CONFIG.defaultWeapon;
 }
 
 function getHealingInventory(master) {
@@ -257,13 +296,13 @@ function getHealingInventory(master) {
 function initializeHealingInventory(master) {
   try {
     const container = getHealingInventory(master);
-    const healingItem = HEALING_ITEMS[getLevel(master)];
+    const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
     const item = container.getItem(0);
     if (!item) {
       container.setItem(0, new ItemStack(healingItem.id, healingItem.amount));
     } else if (item.typeId !== healingItem.id) {
-      const validHealingItem = Object.values(HEALING_ITEMS).some(
-        (configured) => configured.id === item.typeId
+      const validHealingItem = Object.values(INVENTORY_CONFIG.levels).some(
+        (configured) => configured.healingItem.id === item.typeId
       );
       if (!validHealingItem) {
         throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
@@ -279,7 +318,7 @@ function initializeHealingInventory(master) {
 }
 
 function consumeHealingItem(master) {
-  const healingItem = HEALING_ITEMS[getLevel(master)];
+  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
   const container = getHealingInventory(master);
   const item = container.getItem(0);
   if (!item || item.typeId !== healingItem.id || item.amount < 1) return false;
@@ -296,7 +335,9 @@ function dropHealingItems(master) {
   const container = getHealingInventory(master);
   const item = container.getItem(0);
   if (!item) return;
-  if (!Object.values(HEALING_ITEMS).some((configured) => configured.id === item.typeId)) {
+  if (!Object.values(INVENTORY_CONFIG.levels).some(
+    (configured) => configured.healingItem.id === item.typeId
+  )) {
     throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
   }
   master.dimension.spawnItem(new ItemStack(item.typeId, item.amount), master.location);
@@ -351,21 +392,27 @@ function equipWeapon(master) {
 }
 
 function equipLevelArmor(master) {
-  const material = cfg(master).armor;
-  const armor = [
-    ["head", `${material}_helmet`],
-    ["chest", `${material}_chestplate`],
-    ["legs", `${material}_leggings`],
-    ["feet", `${material}_boots`],
-  ];
-  for (const [slot, item] of armor) {
-    master.runCommand(`replaceitem entity @s slot.armor.${slot} 0 ${item} 1`);
+  const material = INVENTORY_CONFIG.levels[getLevel(master)].armor;
+  for (const { slot, suffix } of INVENTORY_CONFIG.armorSlots) {
+    const item = `${material}_${suffix}`;
+    try {
+      const result = master.runCommand(`replaceitem entity @s slot.armor.${slot} 0 ${item} 1`);
+      if (result.successCount < 1) {
+        console.warn(`[PVPbot] 防具の装備に失敗しました: ${item} (${result.statusMessage})`);
+      }
+    } catch (error) {
+      console.warn(`[PVPbot] 防具の装備に失敗しました (${item}): ${error}`);
+    }
   }
 }
 
 function equipOffhandShield(master) {
   try {
-    master.runCommand("replaceitem entity @s slot.weapon.offhand 0 shield 1");
+    const item = INVENTORY_CONFIG.shield.replace("minecraft:", "");
+    const result = master.runCommand(`replaceitem entity @s slot.weapon.offhand 0 ${item} 1`);
+    if (result.successCount < 1) {
+      console.warn(`[PVPbot] 盾の装備に失敗しました: ${item} (${result.statusMessage})`);
+    }
   } catch (error) {
     console.warn(`[PVPbot] 盾の装備に失敗しました: ${error}`);
   }
@@ -529,7 +576,11 @@ system.runInterval(() => {
     for (const master of dim.getEntities({ type: MASTER_ID })) {
       try {
         if (refreshBuffs) applyLevelBuffs(master);
-        if (system.currentTick % 100 === 0 && !getState(master).healing) equipWeapon(master); // 5秒ごとに武器を強制適用
+        if (system.currentTick % 100 === 0) {
+          equipLevelArmor(master);
+          equipOffhandShield(master);
+          if (!getState(master).healing) equipWeapon(master);
+        }
         lavaDamageTick(master, dim);
         aiTick(master, dim, dimId);
       } catch { /* チャンク未ロード等は無視 */ }
@@ -592,7 +643,7 @@ function aiTick(master, dim, dimId) {
   // ---- 自己回復: 立ち止まって食べる ----
   const hp = master.getComponent("minecraft:health");
   if (hp && !s.healing && s.healCd <= 0 && hp.currentValue < hp.effectiveMax * c.healThr) {
-    const healingItem = HEALING_ITEMS[getLevel(master)];
+    const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
     try {
       const healingItemId = healingItem.id.replace("minecraft:", "");
       const result = master.runCommand(`replaceitem entity @s slot.weapon.mainhand 0 ${healingItemId} 1`);
@@ -1088,7 +1139,9 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
     const weaponOverride = world.getDynamicProperty("pvp_weapon");
     world.sendMessage(typeof weaponOverride === "string" && weaponOverride.length > 0
       ? `§7  現在の武器設定: ${weaponOverride}（全レベル共通）`
-      : "§7  現在の武器設定: レベル別（1=鉄、2～3=ダイヤ、4～5=ネザライト）");
+      : `§7  現在の武器設定: レベル別（${Object.entries(INVENTORY_CONFIG.levels)
+        .map(([level, settings]) => `${level}=${settings.weapon.replace("minecraft:", "")}`)
+        .join(", ")}）`);
     return;
   }
   if (!id.includes(":")) id = "minecraft:" + id;
@@ -1154,6 +1207,7 @@ if (world.afterEvents.entityLoad) {
     system.runTimeout(() => {
       try {
         equipWeapon(e);
+        equipLevelArmor(e);
         equipOffhandShield(e);
         syncSkin(e);
         updateName(e);
