@@ -44,10 +44,133 @@ const INVENTORY_CONFIG = {
 };
 
 
+
+function findMlgGroundBlock(master, dim, state)
+{
+  let ground;
+  const velocity = master.getVelocity();
+
+  if (velocity.y < -0.55 && !master.isInWater && state.mlgCd <= 0 &&
+      dim.id !== "minecraft:the_nether")
+  {
+    const location = master.location;
+    const x = Math.floor(location.x);
+    const y = Math.floor(location.y);
+    const z = Math.floor(location.z);
+
+    for (let depth = 1; depth <= 9; depth++)
+    {
+      const block = dim.getBlock({ x, y: y - depth, z });
+      if (!block || block.isAir) continue;
+      if (block.isLiquid) break;
+      ground = block;
+      break;
+    }
+  }
+
+  return ground;
+}
+
+//水源を設置してから6tick後に消す
+function cleanupWater(state)
+{
+  //設置した水源のリストを逆順にループして、寿命が0になった水源を消す
+  for (let i = state.placedWater.length - 1; i >= 0; i--)
+  {
+    //寿命を1減らす
+    const water = state.placedWater[i];
+    water.ttl--;
+
+    //寿命が0になった水源を消す
+    if (water.ttl > 0) continue;
+
+    try
+    {
+      //水源を消す
+      const waterDimension = world.getDimension(water.dimId);
+
+      //水源の座標にあるブロックを取得する
+      const block = waterDimension.getBlock({ x: water.x, y: water.y, z: water.z });
+
+      //ブロックが水源である場合は、空気ブロックに置き換える
+      if (block && block.typeId === "minecraft:water")
+      {
+        //水源を消す
+        block.setType("minecraft:air");
+
+        //水源を消したことを示す音を再生する
+        waterDimension.playSound("bucket.fill_water",
+        {
+          x: water.x + 0.5, y: water.y + 0.5, z: water.z + 0.5,
+        });
+      }
+    }
+    catch
+    {
+
+    }
+
+    //寿命が0になった水源をリストから削除する
+    state.placedWater.splice(i, 1);
+  }
+}
+
+//落下時に水源を設置する
+function placeWaterForMlg(master, dim, dimId, state, isEditProtected) {
+  try
+  {
+    const ground = findMlgGroundBlock(master, dim, state);
+    if (!ground) return;
+
+    const location = master.location;
+    const above = ground.above();
+
+    //地面ブロックの上に水源を設置する
+    if (!above || !above.isAir || isEditProtected(dim, above.x, above.y + 1, above.z)) return;
+
+    try
+    {
+      // setTypeが失敗する場合は、コマンドで水源を設置する
+      above.setType("minecraft:water");
+    }
+    // setTypeが失敗する場合は、コマンドで水源を設置する
+    catch (setTypeError)
+    {
+      // setTypeが失敗する場合は、コマンドで水源を設置する
+      const result = dim.runCommand(`setblock ${above.x} ${above.y} ${above.z} water`);
+
+      // コマンドが失敗した場合は、エラーをスローする
+      if (result.successCount < 1) throw new Error(`${setTypeError}; ${result.statusMessage}`);
+    }
+
+    //水源を設置した座標と残り寿命を記録する
+    state.placedWater.push({ x: above.x, y: above.y, z: above.z, dimId, ttl: 6 });
+
+    //水源を設置したことを示すクールダウンを設定する
+    state.mlgCd = 20;
+    try
+    {
+      //水源を設置したことを示す音を再生する
+      dim.playSound("bucket.empty_water", location);
+    }
+    catch
+    {
+
+    }
+  }
+  catch (error)
+  {
+    //水源を設置する処理でエラーが発生した場合は、クールダウンを設定してエラーをログに出力するww
+    state.mlgCd = 20;
+    console.warn(`[PVPbot] 落下時の水設置に失敗しました: ${error}`);
+  }
+}
+
+
 world.afterEvents.playerSpawn.subscribe((ev) => {
   if (!ev.initialSpawn) return;
   try {
-    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.8 を読み込みました");
+    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.15 を読み込みました");
   } catch (error) {
     console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
   }
@@ -283,6 +406,36 @@ function getWeaponId(master) {
     : INVENTORY_CONFIG.defaultWeapon;
 }
 
+function setMainhandItem(entity, item, label) {
+  let equipped = false;
+  const errors = [];
+
+  try {
+    const equippable = entity.getComponent("minecraft:equippable");
+    if (!equippable) throw new Error("Equippable component is unavailable");
+    equippable.setEquipment(EquipmentSlot.Mainhand, item);
+    equipped = true;
+  } catch (error) {
+    errors.push(`equippable: ${error}`);
+  }
+
+  if (item) {
+    try {
+      const itemId = item.typeId.replace("minecraft:", "");
+      const result = entity.runCommand(
+        `replaceitem entity @s slot.weapon.mainhand 0 ${itemId} ${item.amount}`
+      );
+      if (result.successCount > 0) equipped = true;
+      else errors.push(`replaceitem: ${result.statusMessage}`);
+    } catch (error) {
+      errors.push(`replaceitem: ${error}`);
+    }
+  }
+
+  if (!equipped) console.warn(`[PVPbot] ${label}に失敗しました: ${errors.join("; ")}`);
+  return equipped;
+}
+
 function getHealingInventory(master) {
   const inventory = master.getComponent("minecraft:inventory");
   if (!inventory || !inventory.container) {
@@ -401,43 +554,39 @@ function syncSkin(master) {
 function equipWeapon(master) {
   if (getState(master).healing) return false;
   const id = getWeaponId(master);
-  const short = id.replace("minecraft:", "");
-  let ok = false;
-
-  // 手段1: equippable コンポーネント
-  try {
-    const eq = master.getComponent("minecraft:equippable");
-    if (eq) {
-      eq.setEquipment(EquipmentSlot.Mainhand, new ItemStack(id, 1));
-      ok = true;
-    }
-  } catch {}
-
-  // 手段2: replaceitem コマンド(手段1の成否に関わらず必ず実行する)
-  try {
-    master.runCommand(`replaceitem entity @s slot.weapon.mainhand 0 ${short} 1`);
-    ok = true;
-  } catch {
-    try {
-      master.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${short} 1`);
-      ok = true;
-    } catch {}
-  }
-  return ok;
+  return setMainhandItem(master, new ItemStack(id, 1), "武器の装備");
 }
 
 function equipLevelArmor(master) {
   const material = INVENTORY_CONFIG.levels[getLevel(master)].armor;
   for (const { slot, suffix } of INVENTORY_CONFIG.armorSlots) {
     const item = `${material}_${suffix}`;
+    const equipmentSlot = {
+      head: EquipmentSlot.Head,
+      chest: EquipmentSlot.Chest,
+      legs: EquipmentSlot.Legs,
+      feet: EquipmentSlot.Feet,
+    }[slot];
+    let equipped = false;
+    const errors = [];
+
+    try {
+      const equippable = master.getComponent("minecraft:equippable");
+      if (!equippable || !equipmentSlot) throw new Error("Equippable component or armor slot is unavailable");
+      equippable.setEquipment(equipmentSlot, new ItemStack(`minecraft:${item}`, 1));
+      equipped = true;
+    } catch (error) {
+      errors.push(`equippable: ${error}`);
+    }
+
     try {
       const result = master.runCommand(`replaceitem entity @s slot.armor.${slot} 0 ${item} 1`);
-      if (result.successCount < 1) {
-        console.warn(`[PVPbot] 防具の装備に失敗しました: ${item} (${result.statusMessage})`);
-      }
+      if (result.successCount > 0) equipped = true;
+      else errors.push(`replaceitem: ${result.statusMessage}`);
     } catch (error) {
-      console.warn(`[PVPbot] 防具の装備に失敗しました (${item}): ${error}`);
+      errors.push(`replaceitem: ${error}`);
     }
+    if (!equipped) console.warn(`[PVPbot] 防具の装備に失敗しました (${item}): ${errors.join("; ")}`);
   }
 }
 
@@ -628,23 +777,9 @@ function tryStartHealing(master) {
 
   const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
   let switchedToFood = false;
-  try {
-    const eq = master.getComponent("minecraft:equippable");
-    if (eq) {
-      eq.setEquipment(EquipmentSlot.Mainhand, new ItemStack(healingItem.id, 1));
-      switchedToFood = true;
-    }
-  } catch (error) {
-    console.warn(`[PVPbot] 回復アイテムへの持ち替えに失敗しました: ${error}`);
-  }
-  try {
-    const healingItemId = healingItem.id.replace("minecraft:", "");
-    const result = master.runCommand(`replaceitem entity @s slot.weapon.mainhand 0 ${healingItemId} 1`);
-    if (result.successCount > 0) switchedToFood = true;
-    else console.warn(`[PVPbot] 食料の持ち替えコマンドが失敗しました: ${result.statusMessage}`);
-  } catch (error) {
-    console.warn(`[PVPbot] 食料の持ち替えコマンドに失敗しました: ${error}`);
-  }
+  switchedToFood = setMainhandItem(
+    master, new ItemStack(healingItem.id, 1), "回復アイテムへの持ち替え"
+  );
 
   if (!consumeHealingItem(master)) {
     s.healCd = c.healCd;
@@ -733,7 +868,6 @@ function aiTick(master, dim, dimId) {
   if (s.healCd > 0) s.healCd--;
   if (s.strafeCd > 0) s.strafeCd--;
   if (s.breakCd > 0) s.breakCd--;
-  if (s.mlgCd > 0) s.mlgCd--;
   if (s.pillarCd > 0) s.pillarCd--;
   if (s.dropCd > 0) s.dropCd--;
   if (s.healingInventoryRetry > 0) s.healingInventoryRetry--;
@@ -743,6 +877,7 @@ function aiTick(master, dim, dimId) {
     s.healingInventoryRetry = 100;
   }
 
+  if (s.mlgCd > 0) s.mlgCd--;
   cleanupWater(s);
 
   // ---- 溶岩ダメージON中に溶岩へ落ちたら、何よりも先に脱出する ----
@@ -750,6 +885,8 @@ function aiTick(master, dim, dimId) {
   if (lavaEscapeTick(master, dim, s, inLavaNow)) return;
 
   const loc = master.location;
+  placeWaterForMlg(master, dim, dimId, s, isEditProtected);
+
   // 毎tick全プレイヤーを走査すると重くなるので、4tickごとに更新して使い回す
   if (s.scanCd === undefined || s.scanCd <= 0) {
     s.cachedTarget = nearestPlayer(dim, loc);
@@ -762,28 +899,6 @@ function aiTick(master, dim, dimId) {
   const found = s.cachedTarget
     ? { player: s.cachedTarget.player, distance: dist(s.cachedTarget.player.location, loc) }
     : null;
-
-  // ---- 水バケツMLG ----
-  const vel = master.getVelocity();
-  if (vel.y < -0.55 && !master.isInWater && s.mlgCd <= 0) {
-    const hit = dim.getBlockFromRay(
-      { x: loc.x, y: loc.y + 0.1, z: loc.z },
-      { x: 0, y: -1, z: 0 },
-      { maxDistance: 9, includeLiquidBlocks: true, includePassableBlocks: false }
-    );
-    if (hit && hit.block) {
-      const ground = hit.block;
-      if (!ground.isLiquid) {
-        const above = ground.above();
-        if (above && above.isAir && !isEditProtected(dim, above.x, above.y + 1, above.z)) {
-          above.setType("minecraft:water");
-          s.placedWater.push({ x: above.x, y: above.y, z: above.z, dimId, ttl: 60 });
-          s.mlgCd = 20;
-          try { dim.playSound("bucket.empty_water", loc); } catch {}
-        }
-      }
-    }
-  }
 
   tryStartHealing(master);
 
@@ -1112,24 +1227,6 @@ function breakTowards(master, target, dim) {
   }
 }
 
-function cleanupWater(s) {
-  for (let i = s.placedWater.length - 1; i >= 0; i--) {
-    const w = s.placedWater[i];
-    w.ttl--;
-    if (w.ttl > 0) continue;
-    try {
-      const dim = world.getDimension(w.dimId);
-      const block = dim.getBlock({ x: w.x, y: w.y, z: w.z });
-      if (block && block.typeId === "minecraft:water") {
-        block.setType("minecraft:air");
-        dim.playSound("bucket.fill_water", { x: w.x + 0.5, y: w.y + 0.5, z: w.z + 0.5 });
-      }
-    } catch {}
-    s.placedWater.splice(i, 1);
-  }
-}
-
-
 // 存在しなくなったエンティティの状態を定期的に破棄する(メモリリーク対策)
 system.runInterval(() => {
   if (states.size === 0) return;
@@ -1373,10 +1470,10 @@ world.beforeEvents.itemUseOn.subscribe((ev) => {
         const held = equippable && equippable.getEquipment(EquipmentSlot.Mainhand);
         if (held && held.typeId === eggId) {
           if (held.amount <= 1) {
-            equippable.setEquipment(EquipmentSlot.Mainhand, undefined);
+            setMainhandItem(player, undefined, "スポーンエッグの消費");
           } else {
             held.amount--;
-            equippable.setEquipment(EquipmentSlot.Mainhand, held);
+            setMainhandItem(player, held, "スポーンエッグの消費");
           }
         }
       }

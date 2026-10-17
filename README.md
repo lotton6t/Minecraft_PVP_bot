@@ -44,3 +44,5 @@ In `tag` target mode, add the `pvp_target` tag to players that the bot should at
 ```
 
 Summon the default level 3 bot with `/summon pvp:master`.
+
+`/summon pvp:master ~ ~ ~ 0 0 pvp:set_level_5`

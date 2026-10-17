@@ -1,24 +1,24 @@
 {
   "format_version": 2,
   "header": {
-    "name": "PVPbot [BP] 1.25.8",
+    "name": "PVPbot [BP] 1.25.15",
     "description": "PVPbotの戦闘AIを追加するビヘイビアパック。",
     "uuid": "a01d409a-eb5f-466e-8e16-cd75e1bf6041",
-    "version": [1, 25, 8],
+    "version": [1, 25, 15],
     "min_engine_version": [1, 21, 0]
   },
   "modules": [
     {
       "type": "data",
       "uuid": "26cdcbe3-e4b5-45f4-b8af-2a4ff14ec2ab",
-      "version": [1, 25, 8]
+      "version": [1, 25, 15]
     },
     {
       "type": "script",
       "language": "javascript",
       "uuid": "a508c622-51b7-4404-afdb-6cd2e6b62abd",
       "entry": "scripts/main.js",
-      "version": [1, 25, 8]
+      "version": [1, 25, 15]
     }
   ],
   "dependencies": [
