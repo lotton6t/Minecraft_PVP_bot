@@ -23,7 +23,7 @@ Armor depends on the level: level 1 wears iron, levels 2 and 3 wear diamond, and
 The sword follows the same tiers: level 1 uses iron, levels 2 and 3 use diamond, and levels 4 and 5 use netherite. An explicit `/scriptevent pvpbot:weapon <item_id>` setting overrides the level-based sword for all bots.
 When defeated, a PVPbot drops its equipped helmet, chestplate, leggings, boots, and main-hand weapon. It no longer drops diamonds.
 PVPbots also carry a shield in their offhand; the shield drops when they are defeated.
-Each bot has one stack of 64 golden apples in its private inventory for healing. It switches from its sword to a golden apple while healing and switches back to its configured sword afterward; one apple is consumed per healing. Any golden apples left in its inventory drop when it is defeated.
+Healing items depend on the bot's level: level 1 carries 16 steaks, level 2 carries 64 golden carrots, and levels 3 through 5 each carry 64 golden apples. A bot switches from its sword to its healing item while healing and switches back to its configured sword afterward; one item is consumed per healing. Golden apples also grant regeneration for 5 seconds and absorption for 30 seconds with their effect particles; steak and golden carrot healing does not grant these effects or particles. Any healing items left in its inventory drop when it is defeated.
 
 In `tag` target mode, add the `pvp_target` tag to players that the bot should attack:
 

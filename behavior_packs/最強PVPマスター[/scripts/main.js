@@ -7,8 +7,13 @@
 import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
 
 const MASTER_ID = "pvp:master";
-const HEALING_ITEM_ID = "minecraft:golden_apple";
-const HEALING_ITEM_STACK_SIZE = 64;
+const HEALING_ITEMS = {
+  1: { id: "minecraft:cooked_beef", amount: 16 },
+  2: { id: "minecraft:golden_carrot", amount: 64 },
+  3: { id: "minecraft:golden_apple", amount: 64 },
+  4: { id: "minecraft:golden_apple", amount: 64 },
+  5: { id: "minecraft:golden_apple", amount: 64 },
+};
 const SPAWN_EGG_LEVELS = {
   "pvpbot:spawn_egg_1": 1,
   "pvpbot:spawn_egg_2": 2,
@@ -252,21 +257,32 @@ function getHealingInventory(master) {
 function initializeHealingInventory(master) {
   try {
     const container = getHealingInventory(master);
+    const healingItem = HEALING_ITEMS[getLevel(master)];
     const item = container.getItem(0);
     if (!item) {
-      container.setItem(0, new ItemStack(HEALING_ITEM_ID, HEALING_ITEM_STACK_SIZE));
-    } else if (item.typeId !== HEALING_ITEM_ID) {
-      throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
+      container.setItem(0, new ItemStack(healingItem.id, healingItem.amount));
+    } else if (item.typeId !== healingItem.id) {
+      const validHealingItem = Object.values(HEALING_ITEMS).some(
+        (configured) => configured.id === item.typeId
+      );
+      if (!validHealingItem) {
+        throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
+      }
+      container.setItem(0, new ItemStack(healingItem.id, Math.min(item.amount, healingItem.amount)));
+    } else if (item.amount > healingItem.amount) {
+      item.amount = healingItem.amount;
+      container.setItem(0, item);
     }
   } catch (error) {
     console.warn(`[PVPbot] 回復用インベントリの初期化に失敗しました: ${error}`);
   }
 }
 
-function consumeHealingApple(master) {
+function consumeHealingItem(master) {
+  const healingItem = HEALING_ITEMS[getLevel(master)];
   const container = getHealingInventory(master);
   const item = container.getItem(0);
-  if (!item || item.typeId !== HEALING_ITEM_ID || item.amount < 1) return false;
+  if (!item || item.typeId !== healingItem.id || item.amount < 1) return false;
   if (item.amount === 1) {
     container.setItem(0, undefined);
   } else {
@@ -276,11 +292,11 @@ function consumeHealingApple(master) {
   return true;
 }
 
-function dropHealingApples(master) {
+function dropHealingItems(master) {
   const container = getHealingInventory(master);
   const item = container.getItem(0);
   if (!item) return;
-  if (item.typeId !== HEALING_ITEM_ID) {
+  if (!Object.values(HEALING_ITEMS).some((configured) => configured.id === item.typeId)) {
     throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
   }
   master.dimension.spawnItem(new ItemStack(item.typeId, item.amount), master.location);
@@ -576,9 +592,11 @@ function aiTick(master, dim, dimId) {
   // ---- 自己回復: 立ち止まって食べる ----
   const hp = master.getComponent("minecraft:health");
   if (hp && !s.healing && s.healCd <= 0 && hp.currentValue < hp.effectiveMax * c.healThr) {
+    const healingItem = HEALING_ITEMS[getLevel(master)];
     try {
-      const result = master.runCommand("replaceitem entity @s slot.weapon.mainhand 0 golden_apple 1");
-      if (result.successCount < 1 || !consumeHealingApple(master)) {
+      const healingItemId = healingItem.id.replace("minecraft:", "");
+      const result = master.runCommand(`replaceitem entity @s slot.weapon.mainhand 0 ${healingItemId} 1`);
+      if (result.successCount < 1 || !consumeHealingItem(master)) {
         s.healCd = c.healCd;
         equipWeapon(master);
         return;
@@ -606,8 +624,10 @@ function aiTick(master, dim, dimId) {
       try {
         const h = master.getComponent("minecraft:health");
         if (h) h.setCurrentValue(Math.min(h.effectiveMax, h.currentValue + c.healAmt));
-        master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
-        master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
+        if (healingItem.id === "minecraft:golden_apple") {
+          master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
+          master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
+        }
         master.dimension.playSound("random.burp", master.location);
       } catch (error) {
         console.warn(`[PVPbot] 回復処理に失敗しました: ${error}`);
@@ -1226,9 +1246,9 @@ world.afterEvents.entityDie.subscribe((ev) => {
 
   if (dead.typeId === MASTER_ID) {
     try {
-      dropHealingApples(dead);
+      dropHealingItems(dead);
     } catch (error) {
-      console.warn(`[PVPbot] 死亡時に残りの金のリンゴをドロップできませんでした: ${error}`);
+      console.warn(`[PVPbot] 死亡時に残りの回復アイテムをドロップできませんでした: ${error}`);
     }
 
     let killer;
