@@ -2,7 +2,7 @@
 
 Minecraft Bedrock Edition PVP bot add-on.
 
-The current behavior pack is `PVPbot [BP] 1.25.6`. After installing it, enable that pack in the world's Behavior Packs settings; the startup message is sent to a player when they first join the world.
+The current behavior pack is `PVPbot [BP] 1.25.8`. After installing it, enable that pack in the world's Behavior Packs settings; the startup message is sent to a player when they first join the world.
 
 ## Commands
 
@@ -34,6 +34,8 @@ Set-Location -LiteralPath "behavior_packs\PVPbot\scripts"
 ```
 
 Healing items depend on the bot's level: level 1 carries 16 steaks, level 2 carries 64 golden carrots, and levels 3 through 5 each carry 64 golden apples. A bot switches from its sword to its healing item while healing and switches back to its configured sword afterward; one item is consumed per healing. Golden apples also grant regeneration for 5 seconds and absorption for 30 seconds with their effect particles; steak and golden carrot healing does not grant these effects or particles. Any healing items left in its inventory drop when it is defeated.
+
+PVPbots take normal Minecraft fire and lava damage. Their equipped armor reduces that damage using Minecraft's standard armor calculation. `/scriptevent pvpbot:lava <on|off>` only enables or disables lava escape and bridging behavior; it does not disable fire or lava damage.
 
 In `tag` target mode, add the `pvp_target` tag to players that the bot should attack:
 

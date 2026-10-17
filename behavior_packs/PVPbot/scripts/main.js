@@ -47,7 +47,7 @@ const INVENTORY_CONFIG = {
 world.afterEvents.playerSpawn.subscribe((ev) => {
   if (!ev.initialSpawn) return;
   try {
-    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.6 を読み込みました");
+    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.8 を読み込みました");
   } catch (error) {
     console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
   }
@@ -114,30 +114,10 @@ function isInLavaOrFire(master, dim) {
   return null;
 }
 
-// 溶岩モードON中に呼ばれる。10tickごとにダメージを与える。
-// 【方式について】fire_immune はイベントでの付け外しが効かない環境が
-// あるため、耐性は常時ONのまま、ダメージだけをスクリプトから直接与える。
-// override 指定は耐性を貫通するので確実に減る。
-function lavaDamageTick(master, dim) {
-  if (!isLavaOn()) return;
-  if (system.currentTick % 10 !== 0) return;   // 0.5秒ごと(バニラの溶岩と同じ間隔)
-  const kind = isInLavaOrFire(master, dim);
-  if (!kind) return;
-  const dmg = kind === "lava" ? 4 : 1;         // バニラ相当: 溶岩4 / 炎1
-  try {
-    master.runCommand(`damage @s ${dmg} override`);
-  } catch {
-    try { master.applyDamage(dmg); } catch {}
-  }
-}
-
-
 // ============================================================
-//  溶岩からの脱出(溶岩ダメージONのときだけ働く)
+//  溶岩からの脱出(溶岩脱出モードONのときだけ働く)
 //  プレイヤーと同じように、ジャンプ連打で浮上しながら岸を探し、
 //  這い上がったら少しだけ溶岩から離れる。
-//  【互換性】pvpbot:lava off のときは一切動作しない(従来は無敵で
-//  溶岩を突っ切って追跡するのが正しい挙動のため)
 // ============================================================
 
 // 周囲8方向×距離5マスから「立てる岸」を探す
@@ -217,11 +197,9 @@ function lavaEscapeTick(master, dim, s, inLava) {
 
 
 // ============================================================
-//  溶岩の橋渡し(溶岩ダメージONのときだけ働く)
+//  溶岩の橋渡し(溶岩脱出モードONのときだけ働く)
 //  目の前に溶岩が広がっていて相手が向こう側にいるとき、
 //  プレイヤーと同じように足元へブロックを置きながら渡っていく。
-//  【互換性】pvpbot:lava off のときは一切動作しない(無敵で
-//  突っ切るのが従来の正しい挙動のため)
 // ============================================================
 function tryLavaBridge(master, target, dim, s, d) {
   if (!isLavaOn()) return false;
@@ -402,7 +380,11 @@ function dropHealingItems(master) {
 function updateName(master) {
   const lv = getLevel(master);
   try {
-    master.nameTag = `PVPbot（${LEVELS[lv].name}）`;
+    const health = master.getComponent("minecraft:health");
+    const current = health ? Math.ceil(health.currentValue) : "?";
+    const maximum = health ? Math.ceil(health.effectiveMax) : "?";
+    const nameTag = `PVPbot（${LEVELS[lv].name}） §cHP ${current}/${maximum}`;
+    if (master.nameTag !== nameTag) master.nameTag = nameTag;
   } catch {}
 }
 
@@ -726,6 +708,7 @@ system.runInterval(() => {
     try { dim = world.getDimension(dimId); } catch { continue; }
     for (const master of dim.getEntities({ type: MASTER_ID })) {
       try {
+        if (system.currentTick % 5 === 0) updateName(master);
         tryStartHealing(master);
       } catch (error) {
         console.error(`[PVPbot] 独立した回復判定に失敗しました: ${error}`);
@@ -738,7 +721,6 @@ system.runInterval(() => {
           equipOffhandShield(master);
           if (!getState(master).healing) equipWeapon(master);
         }
-        lavaDamageTick(master, dim);
         aiTick(master, dim, dimId);
       } catch { /* チャンク未ロード等は無視 */ }
     }
@@ -1174,25 +1156,22 @@ const RENDER_LIMITED = new Set([
 
 
 
-// ---------- コマンドによる溶岩ダメージのON/OFF ----------
-// 使い方: /scriptevent pvpbot:lava on  → 溶岩・炎のダメージを受けるようになる
+// ---------- コマンドによる溶岩脱出AIのON/OFF ----------
+// 溶岩・炎のダメージは常にバニラ処理で受け、防具で軽減される。
 system.afterEvents.scriptEventReceive.subscribe((ev) => {
   if (ev.id !== "pvpbot:lava") return;
   const m = (ev.message || "").trim().toLowerCase();
   if (m !== "on" && m !== "off") {
     world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:lava <on / off>");
-    world.sendMessage("§7  on = 溶岩・炎のダメージを受ける / off = 無効(初期値)");
-    world.sendMessage(`§7  現在: ${isLavaOn() ? "受ける" : "無効"}`);
-    world.sendMessage("§7  ※TNTやエンドクリスタルなどの爆発ダメージは元々受けます");
+    world.sendMessage("§7  on = 溶岩からの脱出・橋渡しAIを有効 / off = 無効");
+    world.sendMessage(`§7  現在: ${isLavaOn() ? "有効" : "無効"}`);
+    world.sendMessage("§7  溶岩・炎のダメージは常に受け、防具で軽減されます");
     return;
   }
   world.setDynamicProperty("pvp_lava", m === "on");
   world.sendMessage(m === "on"
-    ? "§6[PVPbot] §e溶岩・炎のダメージを §c受ける §eようにしました"
-    : "§6[PVPbot] §e溶岩・炎のダメージを §a無効 §eに戻しました");
-  if (m === "on") {
-    world.sendMessage("§7  ※燃えるエフェクトは出ませんが、体力は減っていきます");
-  }
+    ? "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを有効にしました"
+    : "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを無効にしました");
 });
 
 // ---------- コマンドによるターゲット選択 ----------
