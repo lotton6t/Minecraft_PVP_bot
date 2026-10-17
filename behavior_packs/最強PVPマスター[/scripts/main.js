@@ -299,6 +299,14 @@ function equipLevelArmor(master) {
   }
 }
 
+function equipOffhandShield(master) {
+  try {
+    master.runCommand("replaceitem entity @s slot.weapon.offhand 0 shield 1");
+  } catch (error) {
+    console.warn(`[PVPbot] 盾の装備に失敗しました: ${error}`);
+  }
+}
+
 // 実際に手に持っているものを読み取る(読めない環境では null)
 function getHeldItemId(master) {
   try {
@@ -1063,7 +1071,14 @@ if (world.afterEvents.entityLoad) {
     const e = ev.entity;
     if (!e || e.typeId !== MASTER_ID) return;
     system.runTimeout(() => {
-      try { equipWeapon(e); syncSkin(e); updateName(e); applyLevelBuffs(e); applyTargetMode(e); } catch {}
+      try {
+        equipWeapon(e);
+        equipOffhandShield(e);
+        syncSkin(e);
+        updateName(e);
+        applyLevelBuffs(e);
+        applyTargetMode(e);
+      } catch {}
     }, 10);
   });
 }
@@ -1085,6 +1100,7 @@ world.afterEvents.entitySpawn.subscribe((ev) => {
         applyLevelBuffs(e);
         equipWeapon(e);
         equipLevelArmor(e);
+        equipOffhandShield(e);
         syncSkin(e);
         updateName(e);
         const h = e.getComponent("minecraft:health");

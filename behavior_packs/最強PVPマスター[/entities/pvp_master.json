@@ -139,7 +139,8 @@
           { "slot": "slot.armor.chest", "drop_chance": 1.0 },
           { "slot": "slot.armor.legs", "drop_chance": 1.0 },
           { "slot": "slot.armor.feet", "drop_chance": 1.0 },
-          { "slot": "slot.weapon.mainhand", "drop_chance": 1.0 }
+          { "slot": "slot.weapon.mainhand", "drop_chance": 1.0 },
+          { "slot": "slot.weapon.offhand", "drop_chance": 1.0 }
         ]
       },
       "minecraft:fire_immune": {}
