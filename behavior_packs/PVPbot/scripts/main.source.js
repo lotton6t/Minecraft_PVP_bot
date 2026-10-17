@@ -7,9 +7,10 @@
 import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
 import { INVENTORY_CONFIG } from "./inventory_config.js";
 
-system.run(() => {
+world.afterEvents.playerSpawn.subscribe((ev) => {
+  if (!ev.initialSpawn) return;
   try {
-    world.sendMessage("§a[PVPbot] スクリプト v1.24.0 を読み込みました");
+    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.6 を読み込みました");
   } catch (error) {
     console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
   }
@@ -34,6 +35,25 @@ const LEVELS = {
   5: { name: "魔王級",   strength: 1,  resistance: 1,  hboost: 5,  healAmt: 15, healThr: 0.75, healCd: 100, crit: 0.55, strafePow: 0.50 },
 };
 const DEFAULT_LEVEL = 3;
+
+function broadcastMessage(message) {
+  let players;
+  try {
+    players = world.getPlayers();
+  } catch (error) {
+    console.error(`[PVPbot] プレイヤー一覧を取得できませんでした: ${error}`);
+    return;
+  }
+  for (const player of players) {
+    try {
+      player.sendMessage(message);
+    } catch (error) {
+      console.error(`[PVPbot] ${player.name}へのメッセージ送信に失敗しました: ${error}`);
+    }
+  }
+}
+
+world.afterEvents.entityDie.subscribe((ev) => handleEntityDeath(ev));
 
 // 溶岩・炎ダメージを受けるか(初期値: 受けない = 従来の挙動)
 function isLavaOn() {
@@ -257,12 +277,17 @@ function getHealingInventory(master) {
 }
 
 function initializeHealingInventory(master) {
+  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
+  const state = getState(master);
+  if (state.healingItemId !== healingItem.id || typeof state.healingItemAmount !== "number") {
+    state.healingItemId = healingItem.id;
+    state.healingItemAmount = healingItem.amount;
+  }
   try {
     const container = getHealingInventory(master);
-    const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
     const item = container.getItem(0);
     if (!item) {
-      container.setItem(0, new ItemStack(healingItem.id, healingItem.amount));
+      container.setItem(0, new ItemStack(healingItem.id, state.healingItemAmount));
     } else if (item.typeId !== healingItem.id) {
       const validHealingItem = Object.values(INVENTORY_CONFIG.levels).some(
         (configured) => configured.healingItem.id === item.typeId
@@ -270,40 +295,68 @@ function initializeHealingInventory(master) {
       if (!validHealingItem) {
         throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
       }
-      container.setItem(0, new ItemStack(healingItem.id, Math.min(item.amount, healingItem.amount)));
-    } else if (item.amount > healingItem.amount) {
-      item.amount = healingItem.amount;
-      container.setItem(0, item);
+      container.setItem(0, new ItemStack(healingItem.id, Math.min(state.healingItemAmount, healingItem.amount)));
+    } else {
+      state.healingItemAmount = Math.min(item.amount, healingItem.amount);
+      if (item.amount !== state.healingItemAmount) {
+        item.amount = state.healingItemAmount;
+        container.setItem(0, item);
+      }
     }
   } catch (error) {
-    console.warn(`[PVPbot] 回復用インベントリの初期化に失敗しました: ${error}`);
-  }
-}
-
-function consumeHealingItem(master) {
-  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
-  const container = getHealingInventory(master);
-  const item = container.getItem(0);
-  if (!item || item.typeId !== healingItem.id || item.amount < 1) return false;
-  if (item.amount === 1) {
-    container.setItem(0, undefined);
-  } else {
-    item.amount--;
-    container.setItem(0, item);
+    console.warn(`[PVPbot] 回復用インベントリを同期できません。内部の所持数で管理します: ${error}`);
   }
   return true;
 }
 
-function dropHealingItems(master) {
-  const container = getHealingInventory(master);
-  const item = container.getItem(0);
-  if (!item) return;
-  if (!Object.values(INVENTORY_CONFIG.levels).some(
-    (configured) => configured.healingItem.id === item.typeId
-  )) {
-    throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
+function consumeHealingItem(master) {
+  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
+  const state = getState(master);
+  if (state.healingItemId !== healingItem.id || state.healingItemAmount < 1) return false;
+  state.healingItemAmount--;
+  try {
+    const container = getHealingInventory(master);
+    const item = container.getItem(0);
+    if (item && item.typeId === healingItem.id) {
+      container.setItem(0, state.healingItemAmount > 0
+        ? new ItemStack(healingItem.id, state.healingItemAmount)
+        : undefined);
+    }
+  } catch (error) {
+    console.warn(`[PVPbot] 回復アイテム数をインベントリに反映できませんでした: ${error}`);
   }
-  master.dimension.spawnItem(new ItemStack(item.typeId, item.amount), master.location);
+  state.healingItemId = healingItem.id;
+  return true;
+}
+
+function dropHealingItems(master) {
+  const state = states.get(master.id) || getState(master);
+  const configuredItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
+  const itemId = state.healingItemId || configuredItem.id;
+  const amount = state.healingItemId && typeof state.healingItemAmount === "number"
+    ? state.healingItemAmount
+    : configuredItem.amount;
+  if (!itemId || !amount || amount < 1) return;
+  if (!Object.values(INVENTORY_CONFIG.levels).some(
+    (configured) => configured.healingItem.id === itemId
+  )) {
+    throw new Error(`Unexpected item in healing inventory: ${itemId}`);
+  }
+  const dimension = master.dimension;
+  const location = { ...master.location, y: master.location.y + 0.25 };
+  const droppedItem = new ItemStack(itemId, amount);
+  state.healingItemAmount = 0;
+  system.runTimeout(() => {
+    try {
+      dimension.spawnItem(droppedItem, location);
+      console.info(`[PVPbot] ドロップ成功: ${itemId} x${amount}`);
+      broadcastMessage(`§e[ PVPbot ] 回復アイテムをドロップしました: ${itemId.replace("minecraft:", "")} x${amount}`);
+    } catch (error) {
+      console.error(`[PVPbot] 残りの回復アイテムをドロップできませんでした (${itemId} x${amount}): ${error}`);
+      broadcastMessage(`§c[PVPbot] 回復アイテムのドロップに失敗しました: ${error}`);
+    }
+  }, 1);
+  return amount;
 }
 
 
@@ -491,9 +544,11 @@ const states = new Map();
 function getState(entity) {
   let s = states.get(entity.id);
   if (!s) {
+    const healingItem = INVENTORY_CONFIG.levels[getLevel(entity)].healingItem;
     s = { healCd: 0, healing: false, strafeCd: 0, breakCd: 0, mlgCd: 0, pillarCd: 0, stuckTicks: 0,
           lastPos: null, placedWater: [], pillar: null, scanCd: 0, cachedTarget: null,
-          dropCd: 0, bridgeCd: 0 };
+          dropCd: 0, bridgeCd: 0, healingInventoryInitialized: false, healingInventoryRetry: 0,
+          healingItemId: healingItem.id, healingItemAmount: healingItem.amount, healStatusCd: 0 };
     states.set(entity.id, s);
   }
   return s;
@@ -530,6 +585,102 @@ function applyLevelBuffs(master) {
     if (c.hboost >= 0) master.addEffect("health_boost", 100, { amplifier: c.hboost, showParticles: false });
   } catch {}
 }
+
+function tryStartHealing(master) {
+  const s = getState(master);
+  const c = cfg(master);
+  const hp = master.getComponent("minecraft:health");
+  if (!hp) return false;
+
+  const maxHealth = hp.effectiveMax;
+  const currentHealth = hp.currentValue;
+  if (!Number.isFinite(maxHealth) || maxHealth <= 0 || !Number.isFinite(currentHealth)) return false;
+  const healthRatio = currentHealth / maxHealth;
+  if (healthRatio > c.healThr) return false;
+  if (s.healStatusCd <= 0) {
+    s.healStatusCd = 40;
+    broadcastMessage(
+      `[PVPbot] 回復判定: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)} ` +
+      `(${Math.round(healthRatio * 100)}%)、しきい値 ${Math.round(c.healThr * 100)}%、` +
+      `食料 ${s.healingItemAmount}個、待機 ${Math.ceil(s.healCd / 20)}秒、回復中 ${s.healing}`
+    );
+  }
+  if (s.healing || s.healCd > 0 || s.healingItemAmount < 1) return false;
+
+  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
+  let switchedToFood = false;
+  try {
+    const eq = master.getComponent("minecraft:equippable");
+    if (eq) {
+      eq.setEquipment(EquipmentSlot.Mainhand, new ItemStack(healingItem.id, 1));
+      switchedToFood = true;
+    }
+  } catch (error) {
+    console.warn(`[PVPbot] 回復アイテムへの持ち替えに失敗しました: ${error}`);
+  }
+  try {
+    const healingItemId = healingItem.id.replace("minecraft:", "");
+    const result = master.runCommand(`replaceitem entity @s slot.weapon.mainhand 0 ${healingItemId} 1`);
+    if (result.successCount > 0) switchedToFood = true;
+    else console.warn(`[PVPbot] 食料の持ち替えコマンドが失敗しました: ${result.statusMessage}`);
+  } catch (error) {
+    console.warn(`[PVPbot] 食料の持ち替えコマンドに失敗しました: ${error}`);
+  }
+
+  if (!consumeHealingItem(master)) {
+    s.healCd = c.healCd;
+    broadcastMessage("[PVPbot] 回復を開始できません: 食料の残数がありません");
+    return false;
+  }
+
+  broadcastMessage(switchedToFood
+    ? `§e[PVPbot] 回復開始: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)}、${healingItem.id.replace("minecraft:", "")}（残り${s.healingItemAmount}個）`
+    : `§c[PVPbot] 食料を消費しましたが、手持ちの切り替えに失敗しました`);
+
+  s.healing = true;
+  s.healCd = c.healCd;
+  try {
+    master.addEffect("slowness", 30, { amplifier: 5, showParticles: false });
+    master.addEffect("weakness", 30, { amplifier: 5, showParticles: false });
+  } catch (error) {
+    console.warn(`[PVPbot] 回復中の効果を付与できませんでした: ${error}`);
+  }
+  for (let i = 0; i < 3; i++) {
+    system.runTimeout(() => {
+      try {
+        master.dimension.playSound("random.eat", master.location, { volume: 1.0 });
+      } catch {}
+    }, i * 10);
+  }
+  system.runTimeout(() => {
+    try {
+      const health = master.getComponent("minecraft:health");
+      if (!health) throw new Error("Bot health component is unavailable");
+      const before = health.currentValue;
+      health.setCurrentValue(Math.min(health.effectiveMax, before + c.healAmt));
+      if (health.currentValue <= before) {
+        health.resetToMaxValue();
+        console.warn("[PVPbot] 指定量の回復が反映されなかったため、体力を最大まで回復しました");
+      }
+      broadcastMessage(`§a[PVPbot] 回復しました（体力 ${Math.round(before)} → ${Math.round(health.currentValue)}）`);
+      if (healingItem.id === "minecraft:golden_apple") {
+        master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
+        master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
+      }
+      master.dimension.playSound("random.burp", master.location);
+    } catch (error) {
+      console.warn(`[PVPbot] 回復処理に失敗しました: ${error}`);
+      broadcastMessage(`§c[PVPbot] 回復処理に失敗しました: ${error}`);
+    } finally {
+      s.healing = false;
+      try { equipWeapon(master); } catch (error) {
+        console.warn(`[PVPbot] 回復後に武器を戻せませんでした: ${error}`);
+      }
+    }
+  }, 30);
+  return true;
+}
+
 // ---------- メインAIループ (毎tick) ----------
 system.runInterval(() => {
   const refreshBuffs = system.currentTick % 40 === 0;
@@ -537,6 +688,12 @@ system.runInterval(() => {
     let dim;
     try { dim = world.getDimension(dimId); } catch { continue; }
     for (const master of dim.getEntities({ type: MASTER_ID })) {
+      try {
+        tryStartHealing(master);
+      } catch (error) {
+        console.error(`[PVPbot] 独立した回復判定に失敗しました: ${error}`);
+        broadcastMessage(`[PVPbot] 回復判定エラー: ${error}`);
+      }
       try {
         if (refreshBuffs) applyLevelBuffs(master);
         if (system.currentTick % 100 === 0) {
@@ -560,6 +717,12 @@ function aiTick(master, dim, dimId) {
   if (s.mlgCd > 0) s.mlgCd--;
   if (s.pillarCd > 0) s.pillarCd--;
   if (s.dropCd > 0) s.dropCd--;
+  if (s.healingInventoryRetry > 0) s.healingInventoryRetry--;
+  if (s.healStatusCd > 0) s.healStatusCd--;
+  if (!s.healingInventoryInitialized && s.healingInventoryRetry <= 0) {
+    s.healingInventoryInitialized = initializeHealingInventory(master);
+    s.healingInventoryRetry = 100;
+  }
 
   cleanupWater(s);
 
@@ -603,56 +766,7 @@ function aiTick(master, dim, dimId) {
     }
   }
 
-  // ---- 自己回復: 立ち止まって食べる ----
-  const hp = master.getComponent("minecraft:health");
-  if (hp && !s.healing && s.healCd <= 0 && hp.currentValue < hp.effectiveMax * c.healThr) {
-    const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
-    try {
-      const healingItemId = healingItem.id.replace("minecraft:", "");
-      const result = master.runCommand(`replaceitem entity @s slot.weapon.mainhand 0 ${healingItemId} 1`);
-      if (result.successCount < 1 || !consumeHealingItem(master)) {
-        s.healCd = c.healCd;
-        equipWeapon(master);
-        return;
-      }
-    } catch (error) {
-      s.healCd = c.healCd;
-      console.warn(`[PVPbot] 回復アイテムへの持ち替えに失敗しました: ${error}`);
-      try { equipWeapon(master); } catch (restoreError) {
-        console.warn(`[PVPbot] 回復開始失敗後に武器を戻せませんでした: ${restoreError}`);
-      }
-      return;
-    }
-    s.healing = true;
-    s.healCd = c.healCd;
-    master.addEffect("slowness", 30, { amplifier: 5, showParticles: false });
-    master.addEffect("weakness", 30, { amplifier: 5, showParticles: false });
-    for (let i = 0; i < 3; i++) {
-      system.runTimeout(() => {
-        try {
-          master.dimension.playSound("random.eat", master.location, { volume: 1.0 });
-        } catch {}
-      }, i * 10);
-    }
-    system.runTimeout(() => {
-      try {
-        const h = master.getComponent("minecraft:health");
-        if (h) h.setCurrentValue(Math.min(h.effectiveMax, h.currentValue + c.healAmt));
-        if (healingItem.id === "minecraft:golden_apple") {
-          master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
-          master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
-        }
-        master.dimension.playSound("random.burp", master.location);
-      } catch (error) {
-        console.warn(`[PVPbot] 回復処理に失敗しました: ${error}`);
-      } finally {
-        s.healing = false;
-        try { equipWeapon(master); } catch (error) {
-          console.warn(`[PVPbot] 回復後に武器を戻せませんでした: ${error}`);
-        }
-      }
-    }, 30);
-  }
+  tryStartHealing(master);
 
   if (!found) return;
   const target = found.player;
@@ -1188,7 +1302,7 @@ world.afterEvents.entitySpawn.subscribe((ev) => {
   if (!e || e.typeId !== MASTER_ID) return;
 
   try {
-    world.sendMessage(`§ePVPbot（${LEVELS[getLevel(e)].name}）がゲームに入室しました`);
+    broadcastMessage(`§ePVPbot（${LEVELS[getLevel(e)].name}）がゲームに入室しました`);
   } catch (error) {
     console.warn(`[PVPbot] 入室メッセージを送信できませんでした: ${error}`);
   }
@@ -1257,15 +1371,18 @@ world.beforeEvents.itemUseOn.subscribe((ev) => {
 });
 
 // ---------- 死亡時の処理 ----------
-world.afterEvents.entityDie.subscribe((ev) => {
+function handleEntityDeath(ev) {
   const dead = ev.deadEntity;
   if (!dead) return;
 
   if (dead.typeId === MASTER_ID) {
+    broadcastMessage("§e[PVPbot] Botの死亡イベントを検知しました");
+    let droppedAmount = 0;
     try {
-      dropHealingItems(dead);
+      droppedAmount = dropHealingItems(dead) || 0;
     } catch (error) {
       console.warn(`[PVPbot] 死亡時に残りの回復アイテムをドロップできませんでした: ${error}`);
+      broadcastMessage(`§c[PVPbot] 回復アイテムのドロップ準備に失敗しました: ${error}`);
     }
 
     let killer;
@@ -1314,13 +1431,10 @@ world.afterEvents.entityDie.subscribe((ev) => {
     } catch (error) {
       console.warn(`[PVPbot] 死因を取得できませんでした: ${error}`);
     }
-    for (const message of [deathMessage, `§e${botName}がゲームを退出しました`]) {
-      try {
-        world.sendMessage(message);
-      } catch (error) {
-        console.warn(`[PVPbot] 退出メッセージを送信できませんでした: ${error}`);
-      }
-    }
+    broadcastMessage(deathMessage);
+    broadcastMessage(droppedAmount > 0
+      ? `§e${botName}がゲームを退出しました（回復アイテム ${droppedAmount} 個をドロップ）`
+      : `§e${botName}がゲームを退出しました（ドロップできる回復アイテムはありません）`);
 
     // 死ぬ前にMLGで置いた水が残らないよう、先に回収する
     const st = states.get(dead.id);
@@ -1344,12 +1458,34 @@ world.afterEvents.entityDie.subscribe((ev) => {
       if (hp) hp.resetToMaxValue();
     } catch {}
   }
-});
+}
 
 // ---------- コンボ補正 ----------
 world.afterEvents.entityHurt.subscribe((ev) => {
   const src = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
   const hurt = ev.hurtEntity;
+  if (hurt && hurt.typeId === MASTER_ID) {
+    const state = getState(hurt);
+    const c = cfg(hurt);
+    const hp = hurt.getComponent("minecraft:health");
+    if (hp && state.healStatusCd <= 0) {
+      state.healStatusCd = 40;
+      const ratio = hp.effectiveMax > 0 ? hp.currentValue / hp.effectiveMax : 0;
+      broadcastMessage(
+        `[PVPbot] 回復判定: HP ${Math.round(hp.currentValue)}/${Math.round(hp.effectiveMax)} ` +
+        `(${Math.round(ratio * 100)}%)、開始条件 ${Math.round(c.healThr * 100)}%以下、` +
+        `食料 ${state.healingItemAmount}個、待機 ${Math.ceil(state.healCd / 20)}秒`
+      );
+    }
+    system.run(() => {
+      try {
+        tryStartHealing(hurt);
+      } catch (error) {
+        console.error(`[PVPbot] 被ダメージ後の回復開始に失敗しました: ${error}`);
+        broadcastMessage(`[PVPbot] 回復開始エラー: ${error}`);
+      }
+    });
+  }
   if (!src || src.typeId !== MASTER_ID) return;
   if (!hurt || hurt.typeId !== "minecraft:player") return;
   if (Math.random() >= 0.25) return;
