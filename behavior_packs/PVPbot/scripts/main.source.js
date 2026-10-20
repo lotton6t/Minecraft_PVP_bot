@@ -24,14 +24,15 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
 
   //10ティック（約0.5秒）待ってから言語を判定してメッセージを送る
   system.runTimeout(() => {
-    try {
+    try
+    {
       //プレイヤーのデータが完全に読み込まれた後に実行されるため、
       //正常に「ja_JP」が取得できるようになります。
-      ev.player.sendMessage(getMsg(ev.player, "LOAD_SUCCESS"));
+      broadcastChat("LOAD_SUCCESS");
     }
     catch(error)
     {
-      logError("LOAD_FAIL", error);
+      broadcastChat("LOAD_FAIL");
     }
   }, 10); //10ティック待機
 });
@@ -444,17 +445,24 @@ function tryStartHealing(master) {
       } catch {}
     }, i * 10);
   }
+  
+  // 1.5秒後の回復処理部分を以下に丸ごと差し替え
   system.runTimeout(() => {
     try {
+      // 💡 超重要：1.5秒経った今、ボットが本当に生きているか（HPが0より大きいか）を厳格にチェック
+      if (!master.isValid) return;
       const health = master.getComponent("minecraft:health");
-      if (!health) throw new Error("Bot health component is unavailable");
+      if (!health || health.currentValue <= 0) return; // すでに死んでいたら回復処理を完全に中止する
+
       const before = health.currentValue;
-      health.setCurrentValue(Math.min(health.effectiveMax, before + c.healAmt));
-      if (health.currentValue <= before) {
-        health.resetToMaxValue();
-        console.warn("[PVPbot] 指定量の回復が反映されなかったため、体力を最大まで回復しました");
+      const targetHealth = Math.min(health.effectiveMax, before + c.healAmt);
+      
+      // 念のため、代入する値が正常値であることを確認
+      if (Number.isFinite(targetHealth) && targetHealth > 0) {
+        health.setCurrentValue(targetHealth);
+        broadcastMessage(`§a[PVPbot] 回復しました（体力 ${Math.round(before)} → ${Math.round(health.currentValue)}）`);
       }
-      broadcastMessage(`§a[PVPbot] 回復しました（体力 ${Math.round(before)} → ${Math.round(health.currentValue)}）`);
+
       if (healingItem.id === "minecraft:golden_apple") {
         master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
         master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
@@ -462,10 +470,14 @@ function tryStartHealing(master) {
       master.dimension.playSound("random.burp", master.location);
     } catch (error) {
       console.warn(`[PVPbot] 回復処理に失敗しました: ${error}`);
-      broadcastMessage(`§c[PVPbot] 回復処理に失敗しました: ${error}`);
     } finally {
+      // 💡 死んでいても実行できるように、isValidチェックを挟んで武器を戻す
       s.healing = false;
-      try { equipWeapon(master); } catch (error) {
+      try {
+        if (master.isValid && master.getComponent("minecraft:health")?.currentValue > 0) {
+          equipWeapon(master);
+        }
+      } catch (error) {
         console.warn(`[PVPbot] 回復後に武器を戻せませんでした: ${error}`);
       }
     }
@@ -1033,11 +1045,16 @@ registerDeathHandler({
 world.afterEvents.entityHurt.subscribe((ev) => {
   const src = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
   const hurt = ev.hurtEntity;
+  
   if (hurt && hurt.typeId === MASTER_ID) {
+    const hp = hurt.getComponent("minecraft:health");
+    
+    // 💡 安全ブレーキ：そもそも体力のコンポーネントがない、またはすでにHPが0以下の場合は即終了（回復させない）
+    if (!hp || hp.currentValue <= 0) return;
+
     const state = getState(hurt);
     const c = cfg(hurt);
-    const hp = hurt.getComponent("minecraft:health");
-    if (hp && state.healStatusCd <= 0) {
+    if (state.healStatusCd <= 0) {
       state.healStatusCd = 40;
       const ratio = hp.effectiveMax > 0 ? hp.currentValue / hp.effectiveMax : 0;
       broadcastMessage(
@@ -1046,15 +1063,20 @@ world.afterEvents.entityHurt.subscribe((ev) => {
         `食料 ${state.healingItemAmount}個、待機 ${Math.ceil(state.healCd / 20)}秒`
       );
     }
+    
     system.run(() => {
       try {
-        tryStartHealing(hurt);
+        // 💡 実行される直前にも、念のためもう一度生存チェックを入れる
+        if (hurt.isValid && hp.currentValue > 0) {
+          tryStartHealing(hurt);
+        }
       } catch (error) {
         console.error(`[PVPbot] 被ダメージ後の回復開始に失敗しました: ${error}`);
         broadcastMessage(`[PVPbot] 回復開始エラー: ${error}`);
       }
     });
   }
+  
   if (!src || src.typeId !== MASTER_ID) return;
   if (!hurt || hurt.typeId !== "minecraft:player") return;
   if (Math.random() >= 0.25) return;
