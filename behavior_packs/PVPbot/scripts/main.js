@@ -246,6 +246,507 @@ function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
   }
 }
 
+const UNBREAKABLE = new Set([
+  "minecraft:bedrock", "minecraft:barrier", "minecraft:deny", "minecraft:allow",
+  "minecraft:border_block", "minecraft:light_block", "minecraft:moving_block",
+  "minecraft:structure_block", "minecraft:structure_void", "minecraft:jigsaw",
+  "minecraft:command_block", "minecraft:chain_command_block",
+  "minecraft:repeating_command_block",
+  "minecraft:end_portal", "minecraft:end_portal_frame", "minecraft:end_gateway",
+  "minecraft:portal", "minecraft:reinforced_deepslate",
+  "minecraft:chest", "minecraft:trapped_chest", "minecraft:ender_chest",
+  "minecraft:barrel", "minecraft:shulker_box", "minecraft:undyed_shulker_box",
+  "minecraft:hopper", "minecraft:dispenser", "minecraft:dropper",
+  "minecraft:furnace", "minecraft:lit_furnace",
+  "minecraft:blast_furnace", "minecraft:lit_blast_furnace",
+  "minecraft:smoker", "minecraft:lit_smoker",
+  "minecraft:brewing_stand", "minecraft:chiseled_bookshelf",
+  "minecraft:decorated_pot", "minecraft:lectern", "minecraft:jukebox",
+  "minecraft:beacon", "minecraft:conduit", "minecraft:enchanting_table",
+  "minecraft:anvil", "minecraft:chipped_anvil", "minecraft:damaged_anvil",
+  "minecraft:mob_spawner", "minecraft:trial_spawner", "minecraft:vault",
+  "minecraft:respawn_anchor", "minecraft:lodestone",
+  "minecraft:bed", "minecraft:sculk_catalyst", "minecraft:sculk_shrieker",
+  "minecraft:tnt", "minecraft:water", "minecraft:lava",
+  "minecraft:flowing_water", "minecraft:flowing_lava",
+]);
+
+function isProtected(typeId) {
+  if (UNBREAKABLE.has(typeId)) return true;
+  if (typeId.endsWith("shulker_box")) return true;
+  if (typeId.endsWith("_bed")) return true;
+  if (typeId.endsWith("_command_block")) return true;
+  return false;
+}
+
+
+function registerSpawnSetup({
+  masterId,
+  levels,
+  getLevel,
+  broadcastMessage,
+  equipWeapon,
+  equipLevelArmor,
+  equipOffhandShield,
+  syncSkin,
+  updateName,
+  applyLevelBuffs,
+  applyTargetMode,
+  initializeHealingInventory,
+}) {
+  if (world.afterEvents.entityLoad) {
+    world.afterEvents.entityLoad.subscribe((ev) => {
+      const entity = ev.entity;
+      if (!entity || entity.typeId !== masterId) return;
+      system.runTimeout(() => {
+        try {
+          equipWeapon(entity);
+          equipLevelArmor(entity);
+          equipOffhandShield(entity);
+          syncSkin(entity);
+          updateName(entity);
+          applyLevelBuffs(entity);
+          applyTargetMode(entity);
+        } catch {}
+        initializeHealingInventory(entity);
+      }, 10);
+    });
+  }
+
+  world.afterEvents.entitySpawn.subscribe((ev) => {
+    const entity = ev.entity;
+    if (!entity || entity.typeId !== masterId) return;
+
+    try {
+      broadcastMessage(`§ePVPbot（${levels[getLevel(entity)].name}）がゲームに入室しました`);
+    } catch (error) {
+      console.warn(`[PVPbot] 入室メッセージを送信できませんでした: ${error}`);
+    }
+
+    try {
+      system.runTimeout(() => {
+        try {
+          applyLevelBuffs(entity);
+          initializeHealingInventory(entity);
+          equipWeapon(entity);
+          equipLevelArmor(entity);
+          equipOffhandShield(entity);
+          syncSkin(entity);
+          updateName(entity);
+          const health = entity.getComponent("minecraft:health");
+          if (health) health.resetToMaxValue();
+        } catch (error) {
+          console.warn(`[PVPbot] スポーン時の初期化に失敗しました: ${error}`);
+        }
+      }, 10);
+    } catch (error) {
+      console.warn(`[PVPbot] スポーン時の初期化を予約できませんでした: ${error}`);
+    }
+  });
+}
+
+
+function registerDeathHandler(dependencies) {
+  world.afterEvents.entityDie.subscribe((ev) => handleEntityDeath(ev, dependencies));
+}
+
+function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems, states }) {
+  const dead = ev.deadEntity;
+  if (!dead) return;
+
+  if (dead.typeId === masterId) {
+    broadcastMessage("§e[PVPbot] Botの死亡イベントを検知しました");
+    let droppedAmount = 0;
+    try {
+      droppedAmount = dropInventoryItems(dead) || 0;
+    } catch (error) {
+      console.warn(`[PVPbot] 死亡時にインベントリアイテムを回収できませんでした: ${error}`);
+      broadcastMessage(`§c[PVPbot] インベントリアイテムのドロップ準備に失敗しました: ${error}`);
+    }
+
+    let killer;
+    let botName = "PVPbot";
+    let cause;
+    try { killer = ev.damageSource && ev.damageSource.damagingEntity; } catch {}
+    try { botName = dead.nameTag || botName; } catch {}
+    try { cause = ev.damageSource && ev.damageSource.cause; } catch {}
+
+    const causes = {
+      anvil: "金床に押しつぶされた",
+      blockExplosion: "爆発で倒された",
+      drowning: "溺死した",
+      entityExplosion: "爆発で倒された",
+      fall: "落下死した",
+      fallingBlock: "落下ブロックに押しつぶされた",
+      fire: "火で焼け死んだ",
+      fireTick: "火で焼け死んだ",
+      fireworks: "花火で倒された",
+      flyIntoWall: "壁に激突して倒れた",
+      freezing: "凍死した",
+      lava: "溶岩で焼け死んだ",
+      lightning: "雷に打たれた",
+      magic: "魔法で倒された",
+      magma: "マグマブロックで倒れた",
+      projectile: "飛び道具で倒された",
+      stalactite: "鍾乳石に貫かれた",
+      stalagmite: "尖った鍾乳石に貫かれた",
+      starve: "飢え死にした",
+      suffocation: "窒息死した",
+      void: "奈落に落ちた",
+      wither: "衰弱して倒れた",
+      sonicBoom: "ソニックブームで倒された",
+      maceSmash: "メイスで叩きつぶされた",
+    };
+    let deathMessage = `§f${botName}は倒された`;
+    try {
+      if (killer && killer.typeId === "minecraft:player") {
+        deathMessage = `§f${botName}は${killer.name}に殺害された`;
+      } else if (killer) {
+        const killerName = killer.nameTag || killer.typeId;
+        deathMessage = `§f${botName}は${killerName}に倒された`;
+      } else {
+        deathMessage = `§f${botName}は${causes[cause] || `${cause || "不明な原因"}で倒された`}`;
+      }
+    } catch (error) {
+      console.warn(`[PVPbot] 死因を取得できませんでした: ${error}`);
+    }
+    broadcastMessage(deathMessage);
+    broadcastMessage(droppedAmount > 0
+      ? `§e${botName}がゲームを退出しました（インベントリのアイテム ${droppedAmount} 個をドロップ）`
+      : `§e${botName}がゲームを退出しました（ドロップできるインベントリアイテムはありません）`);
+
+    const state = states.get(dead.id);
+    if (state) {
+      for (const water of state.placedWater) {
+        try {
+          const block = world.getDimension(water.dimId).getBlock({
+            x: water.x,
+            y: water.y,
+            z: water.z,
+          });
+          if (block && block.typeId === "minecraft:water") block.setType("minecraft:air");
+        } catch {}
+      }
+    }
+    states.delete(dead.id);
+    return;
+  }
+
+  const killer = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
+  if (dead.typeId === "minecraft:player" && killer && killer.typeId === masterId) {
+    try {
+      const health = killer.getComponent("minecraft:health");
+      if (health) health.resetToMaxValue();
+    } catch {}
+  }
+}
+
+
+function isLavaOn() {
+  return world.getDynamicProperty("pvp_lava") === true;
+}
+
+function isInLavaOrFire(master, dim) {
+  try {
+    if (master.isInLava === true) return "lava";
+  } catch {}
+  try {
+    const location = master.location;
+    const feet = dim.getBlock(location);
+    if (feet) {
+      const id = feet.typeId;
+      if (id === "minecraft:lava" || id === "minecraft:flowing_lava") return "lava";
+      if (id === "minecraft:fire" || id === "minecraft:soul_fire") return "fire";
+    }
+  } catch {}
+  return null;
+}
+
+function createLavaBehavior({ knockback, isEditProtected, pillarBlock }) {
+  function findLavaExit(master, dim) {
+    const location = master.location;
+    const baseY = Math.floor(location.y);
+    const directions = [
+      [1, 0], [-1, 0], [0, 1], [0, -1],
+      [0.707, 0.707], [0.707, -0.707], [-0.707, 0.707], [-0.707, -0.707],
+    ];
+    for (let radius = 1; radius <= 5; radius++) {
+      for (const [dx, dz] of directions) {
+        const x = Math.floor(location.x + dx * radius);
+        const z = Math.floor(location.z + dz * radius);
+        for (const dy of [0, 1]) {
+          try {
+            const feet = dim.getBlock({ x, y: baseY + dy, z });
+            const head = dim.getBlock({ x, y: baseY + dy + 1, z });
+            const ground = dim.getBlock({ x, y: baseY + dy - 1, z });
+            if (!feet || !head || !ground) continue;
+            if (feet.isAir && head.isAir && !ground.isAir && !ground.isLiquid &&
+                ground.typeId !== "minecraft:magma") {
+              return { dx, dz, up: dy };
+            }
+          } catch {}
+        }
+      }
+    }
+    return null;
+  }
+
+  function lavaEscapeTick(master, dim, state) {
+    const inLava = isLavaOn() && isInLavaOrFire(master, dim) === "lava";
+    if (inLava) {
+      state.lavaEsc = state.lavaEsc || { t: 0, scanCd: 0, exit: null, awayT: 0 };
+      const escape = state.lavaEsc;
+      escape.awayT = 14;
+      escape.t++;
+
+      if (escape.scanCd <= 0 || !escape.exit) {
+        escape.exit = findLavaExit(master, dim);
+        escape.scanCd = 10;
+      } else {
+        escape.scanCd--;
+      }
+
+      if (escape.t % 5 === 0) {
+        if (escape.exit) {
+          const vertical = escape.exit.up === 1 ? 0.52 : 0.42;
+          knockback(master, escape.exit.dx, escape.exit.dz, 0.28, vertical);
+        } else {
+          knockback(master, 0, 0, 0, 0.46);
+        }
+      }
+      return true;
+    }
+
+    if (state.lavaEsc && state.lavaEsc.awayT > 0) {
+      const escape = state.lavaEsc;
+      escape.awayT--;
+      if (escape.exit && escape.awayT % 3 === 0) {
+        knockback(master, escape.exit.dx, escape.exit.dz, 0.3, 0.05);
+      }
+      if (escape.awayT <= 0) state.lavaEsc = null;
+      return true;
+    }
+
+    return false;
+  }
+
+  function tryLavaBridge(master, target, dim, state, distance) {
+    if (!isLavaOn()) return false;
+    if (state.bridgeCd > 0) { state.bridgeCd--; return false; }
+    if (!master.isOnGround || distance < 2.5) return false;
+
+    const location = master.location;
+    const dy = target.location.y - location.y;
+    if (Math.abs(dy) >= 3) return false;
+
+    const dx = target.location.x - location.x;
+    const dz = target.location.z - location.z;
+    const length = Math.sqrt(dx * dx + dz * dz) || 1;
+    const nx = dx / length, nz = dz / length;
+    const feetY = Math.floor(location.y + 0.02);
+    const ax = Math.floor(location.x + nx * 1.2);
+    const az = Math.floor(location.z + nz * 1.2);
+
+    let feetAhead, stepAhead, below2;
+    try {
+      feetAhead = dim.getBlock({ x: ax, y: feetY, z: az });
+      stepAhead = dim.getBlock({ x: ax, y: feetY - 1, z: az });
+      below2 = dim.getBlock({ x: ax, y: feetY - 2, z: az });
+    } catch { return false; }
+    if (!feetAhead || !stepAhead) return false;
+
+    const isLava = (block) => block &&
+      (block.typeId === "minecraft:lava" || block.typeId === "minecraft:flowing_lava");
+    if (isLava(feetAhead) || !feetAhead.isAir) return false;
+
+    const needBridge = isLava(stepAhead) || (stepAhead.isAir && isLava(below2));
+    if (!needBridge || isEditProtected(dim, ax, feetY - 1, az)) return false;
+
+    try {
+      stepAhead.setType(pillarBlock);
+      dim.playSound("use.stone", { x: ax + 0.5, y: feetY - 0.5, z: az + 0.5 });
+    } catch { return false; }
+
+    knockback(master, nx, nz, 0.22, 0.05);
+    state.bridgeCd = 6;
+    return true;
+  }
+
+  return { lavaEscapeTick, tryLavaBridge };
+}
+
+function registerLavaCommand() {
+  system.afterEvents.scriptEventReceive.subscribe((ev) => {
+    if (ev.id !== "pvpbot:lava") return;
+    const message = (ev.message || "").trim().toLowerCase();
+    if (message !== "on" && message !== "off") {
+      world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:lava <on / off>");
+      world.sendMessage("§7  on = 溶岩からの脱出・橋渡しAIを有効 / off = 無効");
+      world.sendMessage(`§7  現在: ${isLavaOn() ? "有効" : "無効"}`);
+      world.sendMessage("§7  溶岩・炎のダメージは常に受け、防具で軽減されます");
+      return;
+    }
+    world.setDynamicProperty("pvp_lava", message === "on");
+    world.sendMessage(message === "on"
+      ? "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを有効にしました"
+      : "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを無効にしました");
+  });
+}
+
+
+function createInventoryDropper({ getBotInventory, broadcastMessage }) {
+  return function dropInventoryItems(master) {
+    const container = getBotInventory(master);
+    const items = [];
+    for (let slot = 0; slot < container.size; slot++) {
+      const item = container.getItem(slot);
+      if (!item) continue;
+      items.push(item.clone());
+      container.setItem(slot, undefined);
+    }
+    if (items.length === 0) return 0;
+
+    const dimension = master.dimension;
+    const location = { ...master.location, y: master.location.y + 0.25 };
+    system.runTimeout(() => {
+      for (const item of items) {
+        try {
+          dimension.spawnItem(item, location);
+          console.info(`[PVPbot] インベントリアイテムをドロップしました: ${item.typeId} x${item.amount}`);
+        } catch (error) {
+          console.error(`[PVPbot] インベントリアイテムをドロップできませんでした (${item.typeId} x${item.amount}): ${error}`);
+          broadcastMessage(`§c[PVPbot] ${item.typeId.replace("minecraft:", "")} のドロップに失敗しました: ${error}`);
+        }
+      }
+    }, 1);
+    return items.reduce((total, item) => total + item.amount, 0);
+  };
+}
+function createFallBehavior({ knockback }) {
+  const DROP_MIN = 2.5;
+  const DROP_SCAN = 24;
+
+  function tryDescend(master, target, dim, state) {
+    if (state.dropCd > 0) return false;
+    if (!master.isOnGround) return false;
+
+    const location = master.location;
+    const dy = target.location.y - location.y;
+    if (dy > -DROP_MIN) return false;
+
+    const dx = target.location.x - location.x;
+    const dz = target.location.z - location.z;
+    const length = Math.sqrt(dx * dx + dz * dz);
+    if (length < 0.001) return false;
+    const nx = dx / length, nz = dz / length;
+
+    const frontX = location.x + nx * 0.9;
+    const frontZ = location.z + nz * 0.9;
+    try {
+      const at = dim.getBlock({ x: frontX, y: location.y, z: frontZ });
+      if (!at || !(at.isAir || at.isLiquid)) return false;
+
+      const below = dim.getBlock({ x: frontX, y: location.y - 1, z: frontZ });
+      if (below && !below.isAir && !below.isLiquid) return false;
+    } catch { return false; }
+
+    let landing = null;
+    try {
+      const hit = dim.getBlockFromRay(
+        { x: frontX, y: location.y - 1.2, z: frontZ },
+        { x: 0, y: -1, z: 0 },
+        { maxDistance: DROP_SCAN, includeLiquidBlocks: true, includePassableBlocks: false }
+      );
+      if (hit && hit.block) landing = hit.block;
+    } catch { return false; }
+
+    if (!landing) return false;
+    if (landing.typeId === "minecraft:lava" || landing.typeId === "minecraft:flowing_lava") {
+      return false;
+    }
+
+    knockback(master, nx, nz, 0.42, 0.02);
+    state.dropCd = 8;
+    return true;
+  }
+
+  return { tryDescend };
+}
+const PROTECT_SCAN_DEPTH = 128;
+
+function isEditProtected(dim, x, y, z) {
+  try {
+    const bx = Math.floor(x), bz = Math.floor(z);
+    let minY = -64;
+    try { minY = dim.heightRange.min; } catch {}
+    const start = Math.floor(y) - 1;
+    const stop = Math.max(minY, start - PROTECT_SCAN_DEPTH);
+    for (let yy = start; yy >= stop; yy--) {
+      let block;
+      try { block = dim.getBlock({ x: bx, y: yy, z: bz }); } catch { return false; }
+      if (!block) return false;
+      const id = block.typeId;
+      if (id === "minecraft:deny" || id === "minecraft:border_block") return true;
+      if (id === "minecraft:allow") return false;
+    }
+  } catch {}
+  return false;
+}
+function updateHeadPose(master, state) {
+  try {
+    const fallingLook = state.waterMlgLookDown;
+    const target = state.cachedTarget && state.cachedTarget.player;
+    let targetPitch = fallingLook ? 90 : 0;
+    let targetYaw = 0;
+    if (!fallingLook && target && target.isValid) {
+      const source = master.location;
+      const destination = target.location;
+      const dx = destination.x - source.x;
+      const dy = destination.y - source.y;
+      const dz = destination.z - source.z;
+      const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+      const bodyYaw = master.getRotation().y;
+      const targetDirectionYaw = Math.atan2(-dx, dz) * 180 / Math.PI;
+      targetPitch = Math.max(-60, Math.min(60,
+        -Math.atan2(dy, horizontalDistance) * 180 / Math.PI));
+      targetYaw = targetDirectionYaw - bodyYaw;
+      targetYaw = ((targetYaw + 180) % 360 + 360) % 360 - 180;
+      targetYaw = Math.max(-90, Math.min(90, targetYaw));
+    }
+
+    if (!Number.isFinite(state.headPitch)) {
+      const currentPitch = master.getProperty("pvp:head_pitch");
+      state.headPitch = Number.isFinite(currentPitch) ? currentPitch : 0;
+    }
+    if (!Number.isFinite(state.headYaw)) {
+      const currentYaw = master.getProperty("pvp:head_yaw");
+      state.headYaw = Number.isFinite(currentYaw) ? currentYaw : 0;
+    }
+
+    const pitchDelta = targetPitch - state.headPitch;
+    const yawDelta = targetYaw - state.headYaw;
+    const pitch = Math.abs(pitchDelta) < 0.5
+      ? targetPitch
+      : state.headPitch + pitchDelta * 0.2;
+    const yaw = Math.abs(yawDelta) < 0.5
+      ? targetYaw
+      : state.headYaw + yawDelta * 0.2;
+
+    if (state.headPitch !== pitch) {
+      master.setProperty("pvp:head_pitch", pitch);
+      state.headPitch = pitch;
+    }
+    if (state.headYaw !== yaw) {
+      master.setProperty("pvp:head_yaw", yaw);
+      state.headYaw = yaw;
+    }
+  } catch (error) {
+    if (!state.headPoseErrorLogged) {
+      console.warn(`[PVPbot] 頭部角度を更新できませんでした: ${error}`);
+      state.headPoseErrorLogged = true;
+    }
+  }
+}
 
 world.afterEvents.playerSpawn.subscribe((ev) => {
   if (!ev.initialSpawn) return;
@@ -291,166 +792,6 @@ function broadcastMessage(message) {
       console.error(`[PVPbot] ${player.name}へのメッセージ送信に失敗しました: ${error}`);
     }
   }
-}
-
-world.afterEvents.entityDie.subscribe((ev) => handleEntityDeath(ev));
-
-// 溶岩・炎ダメージを受けるか(初期値: 受けない = 従来の挙動)
-function isLavaOn() {
-  return world.getDynamicProperty("pvp_lava") === true;
-}
-
-// 溶岩・炎の中にいるか(プロパティが無い環境ではブロックで判定)
-function isInLavaOrFire(master, dim) {
-  try {
-    if (master.isInLava === true) return "lava";
-  } catch {}
-  try {
-    const loc = master.location;
-    const feet = dim.getBlock(loc);
-    if (feet) {
-      const id = feet.typeId;
-      if (id === "minecraft:lava" || id === "minecraft:flowing_lava") return "lava";
-      if (id === "minecraft:fire" || id === "minecraft:soul_fire") return "fire";
-    }
-  } catch {}
-  return null;
-}
-
-// ============================================================
-//  溶岩からの脱出(溶岩脱出モードONのときだけ働く)
-//  プレイヤーと同じように、ジャンプ連打で浮上しながら岸を探し、
-//  這い上がったら少しだけ溶岩から離れる。
-// ============================================================
-
-// 周囲8方向×距離5マスから「立てる岸」を探す
-function findLavaExit(master, dim) {
-  const loc = master.location;
-  const baseY = Math.floor(loc.y);
-  const DIRS = [
-    [1, 0], [-1, 0], [0, 1], [0, -1],
-    [0.707, 0.707], [0.707, -0.707], [-0.707, 0.707], [-0.707, -0.707],
-  ];
-  for (let r = 1; r <= 5; r++) {
-    for (const [dx, dz] of DIRS) {
-      const x = Math.floor(loc.x + dx * r);
-      const z = Math.floor(loc.z + dz * r);
-      for (const dy of [0, 1]) {   // 同じ高さ or 1段上の岸
-        try {
-          const feet = dim.getBlock({ x, y: baseY + dy, z });
-          const head = dim.getBlock({ x, y: baseY + dy + 1, z });
-          const ground = dim.getBlock({ x, y: baseY + dy - 1, z });
-          if (!feet || !head || !ground) continue;
-          const gid = ground.typeId;
-          if (feet.isAir && head.isAir &&
-              !ground.isAir && !ground.isLiquid &&
-              gid !== "minecraft:magma") {
-            return { dx, dz, up: dy };
-          }
-        } catch {}
-      }
-    }
-  }
-  return null;
-}
-
-// 脱出中は true を返す(その間、通常のAI行動は行わない)
-function lavaEscapeTick(master, dim, s, inLava) {
-  if (inLava) {
-    s.lavaEsc = s.lavaEsc || { t: 0, scanCd: 0, exit: null, awayT: 0 };
-    const e = s.lavaEsc;
-    e.awayT = 14;   // 抜けた後に離れる時間を予約
-    e.t++;
-
-    // 岸の場所を定期的に探し直す
-    if (e.scanCd <= 0 || !e.exit) {
-      e.exit = findLavaExit(master, dim);
-      e.scanCd = 10;
-    } else {
-      e.scanCd--;
-    }
-
-    // 5tickごとに泳ぎジャンプ(プレイヤーがジャンプ連打で浮くのと同じ)
-    if (e.t % 5 === 0) {
-      if (e.exit) {
-        // 岸に向かって浮上。1段上の岸なら強めに跳ぶ
-        const vert = e.exit.up === 1 ? 0.52 : 0.42;
-        knockback(master, e.exit.dx, e.exit.dz, 0.28, vert);
-      } else {
-        // 岸が見つからなければ、とにかく浮上して視界を確保
-        knockback(master, 0, 0, 0, 0.46);
-      }
-    }
-    return true;
-  }
-
-  // 溶岩から出た直後: 予約した時間だけ同じ方向へ離れて距離を取る
-  if (s.lavaEsc && s.lavaEsc.awayT > 0) {
-    const e = s.lavaEsc;
-    e.awayT--;
-    if (e.exit && e.awayT % 3 === 0) {
-      knockback(master, e.exit.dx, e.exit.dz, 0.3, 0.05);
-    }
-    if (e.awayT <= 0) s.lavaEsc = null;   // 脱出完了。通常のAIに戻る
-    return true;
-  }
-
-  return false;
-}
-
-
-// ============================================================
-//  溶岩の橋渡し(溶岩脱出モードONのときだけ働く)
-//  目の前に溶岩が広がっていて相手が向こう側にいるとき、
-//  プレイヤーと同じように足元へブロックを置きながら渡っていく。
-// ============================================================
-function tryLavaBridge(master, target, dim, s, d) {
-  if (!isLavaOn()) return false;
-  if (s.bridgeCd > 0) { s.bridgeCd--; return false; }
-  if (!master.isOnGround || d < 2.5) return false;
-
-  const loc = master.location;
-  const dy = target.location.y - loc.y;
-  if (Math.abs(dy) >= 3) return false;   // 高低差が大きい場合は積み上げ/降下に任せる
-
-  const dx = target.location.x - loc.x;
-  const dz = target.location.z - loc.z;
-  const len = Math.sqrt(dx * dx + dz * dz) || 1;
-  const nx = dx / len, nz = dz / len;
-
-  const feetY = Math.floor(loc.y + 0.02);
-  const ax = Math.floor(loc.x + nx * 1.2);
-  const az = Math.floor(loc.z + nz * 1.2);
-
-  let feetAhead, stepAhead, below2;
-  try {
-    feetAhead = dim.getBlock({ x: ax, y: feetY, z: az });       // 一歩先の足の高さ
-    stepAhead = dim.getBlock({ x: ax, y: feetY - 1, z: az });   // 一歩先の床
-    below2    = dim.getBlock({ x: ax, y: feetY - 2, z: az });
-  } catch { return false; }
-  if (!feetAhead || !stepAhead) return false;
-
-  // 足の高さまで溶岩がある場合は、渡る場所ではない(脱出・迂回に任せる)
-  const isLava = (b) => b && (b.typeId === "minecraft:lava" || b.typeId === "minecraft:flowing_lava");
-  if (isLava(feetAhead)) return false;
-  if (!feetAhead.isAir) return false;   // 一歩先に壁がある場合は壁破壊に任せる
-
-  // 「一歩先の床が溶岩」または「床が空気で、そのすぐ下が溶岩」→ 橋を架ける
-  const needBridge = isLava(stepAhead) || (stepAhead.isAir && isLava(below2));
-  if (!needBridge) return false;
-
-  // deny保護範囲には設置しない
-  if (isEditProtected(dim, ax, feetY - 1, az)) return false;
-
-  try {
-    stepAhead.setType(PILLAR_BLOCK);
-    dim.playSound("use.stone", { x: ax + 0.5, y: feetY - 0.5, z: az + 0.5 });
-  } catch { return false; }
-
-  // 置いた足場の上へ一歩進む(経路探索は溶岩を避けたがるので軽く押す)
-  knockback(master, nx, nz, 0.22, 0.05);
-  s.bridgeCd = 6;
-  return true;
 }
 
 // ターゲットモード: "all"=全プレイヤー / "tag"=pvp_targetタグのある人だけ
@@ -520,62 +861,6 @@ function getMainhandMode(master, state) {
   if (state.waterMlgPhase === "armed" || state.waterMlgPhase === "recovered") return "falling";
   if (state.waterMlgPhase === "placed") return "fallingEmpty";
   return state.healing ? "recovery" : "combat";
-}
-
-function updateHeadPose(master, state) {
-  try {
-    const fallingLook = state.waterMlgLookDown;
-    const target = state.cachedTarget && state.cachedTarget.player;
-    let targetPitch = fallingLook ? 90 : 0;
-    let targetYaw = 0;
-    if (!fallingLook && target && target.isValid) {
-      const source = master.location;
-      const destination = target.location;
-      const dx = destination.x - source.x;
-      const dy = destination.y - source.y;
-      const dz = destination.z - source.z;
-      const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
-      const bodyYaw = master.getRotation().y;
-      const targetDirectionYaw = Math.atan2(-dx, dz) * 180 / Math.PI;
-      targetPitch = Math.max(-60, Math.min(60,
-        -Math.atan2(dy, horizontalDistance) * 180 / Math.PI));
-      targetYaw = targetDirectionYaw - bodyYaw;
-      targetYaw = ((targetYaw + 180) % 360 + 360) % 360 - 180;
-      targetYaw = Math.max(-90, Math.min(90, targetYaw));
-    }
-
-    if (!Number.isFinite(state.headPitch)) {
-      const currentPitch = master.getProperty("pvp:head_pitch");
-      state.headPitch = Number.isFinite(currentPitch) ? currentPitch : 0;
-    }
-    if (!Number.isFinite(state.headYaw)) {
-      const currentYaw = master.getProperty("pvp:head_yaw");
-      state.headYaw = Number.isFinite(currentYaw) ? currentYaw : 0;
-    }
-
-    const pitchDelta = targetPitch - state.headPitch;
-    const yawDelta = targetYaw - state.headYaw;
-    const pitch = Math.abs(pitchDelta) < 0.5
-      ? targetPitch
-      : state.headPitch + pitchDelta * 0.2;
-    const yaw = Math.abs(yawDelta) < 0.5
-      ? targetYaw
-      : state.headYaw + yawDelta * 0.2;
-
-    if (state.headPitch !== pitch) {
-      master.setProperty("pvp:head_pitch", pitch);
-      state.headPitch = pitch;
-    }
-    if (state.headYaw !== yaw) {
-      master.setProperty("pvp:head_yaw", yaw);
-      state.headYaw = yaw;
-    }
-  } catch (error) {
-    if (!state.headPoseErrorLogged) {
-      console.warn(`[PVPbot] 頭部角度を更新できませんでした: ${error}`);
-      state.headPoseErrorLogged = true;
-    }
-  }
 }
 
 function updateMainhandMode(master, force = false) {
@@ -674,34 +959,7 @@ function consumeHealingItem(master) {
   return true;
 }
 
-function dropInventoryItems(master) {
-  const container = getBotInventory(master);
-  const items = [];
-  for (let slot = 0; slot < container.size; slot++) {
-    const item = container.getItem(slot);
-    if (!item) continue;
-    items.push(item.clone());
-    container.setItem(slot, undefined);
-  }
-  if (items.length === 0) return 0;
-
-  const dimension = master.dimension;
-  const location = { ...master.location, y: master.location.y + 0.25 };
-  system.runTimeout(() => {
-    for (const item of items) {
-      try {
-        dimension.spawnItem(item, location);
-        console.info(`[PVPbot] インベントリアイテムをドロップしました: ${item.typeId} x${item.amount}`);
-      } catch (error) {
-        console.error(`[PVPbot] インベントリアイテムをドロップできませんでした (${item.typeId} x${item.amount}): ${error}`);
-        broadcastMessage(`§c[PVPbot] ${item.typeId.replace("minecraft:", "")} のドロップに失敗しました: ${error}`);
-      }
-    }
-  }, 1);
-  return items.reduce((total, item) => total + item.amount, 0);
-}
-
-
+const dropInventoryItems = createInventoryDropper({ getBotInventory, broadcastMessage });
 
 // 頭上に表示する名前をレベルに合わせる
 function updateName(master) {
@@ -787,81 +1045,6 @@ function getHeldItemId(master) {
 }
 
 
-// 壊してはいけないブロック
-// setblock ... destroy はチェストの中身もドロップさせてしまうため、
-// 配布アドオンとして他人のワールドを荒らさないよう保護対象を広く取る
-const UNBREAKABLE = new Set([
-  // 破壊不能・システム系
-  "minecraft:bedrock", "minecraft:barrier", "minecraft:deny", "minecraft:allow",
-  "minecraft:border_block", "minecraft:light_block", "minecraft:moving_block",
-  "minecraft:structure_block", "minecraft:structure_void", "minecraft:jigsaw",
-  "minecraft:command_block", "minecraft:chain_command_block",
-  "minecraft:repeating_command_block",
-  "minecraft:end_portal", "minecraft:end_portal_frame", "minecraft:end_gateway",
-  "minecraft:portal", "minecraft:reinforced_deepslate",
-  // 収納系(中身が飛び散るのを防ぐ)
-  "minecraft:chest", "minecraft:trapped_chest", "minecraft:ender_chest",
-  "minecraft:barrel", "minecraft:shulker_box", "minecraft:undyed_shulker_box",
-  "minecraft:hopper", "minecraft:dispenser", "minecraft:dropper",
-  "minecraft:furnace", "minecraft:lit_furnace",
-  "minecraft:blast_furnace", "minecraft:lit_blast_furnace",
-  "minecraft:smoker", "minecraft:lit_smoker",
-  "minecraft:brewing_stand", "minecraft:chiseled_bookshelf",
-  "minecraft:decorated_pot", "minecraft:lectern", "minecraft:jukebox",
-  // 貴重・機能ブロック
-  "minecraft:beacon", "minecraft:conduit", "minecraft:enchanting_table",
-  "minecraft:anvil", "minecraft:chipped_anvil", "minecraft:damaged_anvil",
-  "minecraft:mob_spawner", "minecraft:trial_spawner", "minecraft:vault",
-  "minecraft:respawn_anchor", "minecraft:lodestone",
-  "minecraft:bed", "minecraft:sculk_catalyst", "minecraft:sculk_shrieker",
-  // 触ると危険
-  "minecraft:tnt", "minecraft:water", "minecraft:lava",
-  "minecraft:flowing_water", "minecraft:flowing_lava",
-]);
-
-
-// ============================================================
-//  デニーブロック(建築保護)への対応
-//  deny ブロックは「その真上の列」の破壊・設置を禁止する。
-//  途中に allow があれば、そこから上は再び編集可能。
-//  この判定は、対象座標から真下を走査して deny / allow の
-//  どちらが先に見つかるかで決める(本来の仕様と同じ順序)。
-//
-//  【互換性への配慮】
-//  ・deny が存在しないワールドでは必ず false を返し、従来と同一動作
-//  ・走査中にエラーが出た場合も false(従来動作を優先)
-// ============================================================
-const PROTECT_SCAN_DEPTH = 128;   // 走査する最大深さ
-
-function isEditProtected(dim, x, y, z) {
-  try {
-    const bx = Math.floor(x), bz = Math.floor(z);
-    let minY = -64;
-    try { minY = dim.heightRange.min; } catch {}
-    const start = Math.floor(y) - 1;
-    const stop = Math.max(minY, start - PROTECT_SCAN_DEPTH);
-    for (let yy = start; yy >= stop; yy--) {
-      let b;
-      try { b = dim.getBlock({ x: bx, y: yy, z: bz }); } catch { return false; }
-      if (!b) return false;                              // 未ロードは判定不能→従来動作
-      const id = b.typeId;
-      if (id === "minecraft:deny" || id === "minecraft:border_block") return true;
-      if (id === "minecraft:allow") return false;        // allowから上は編集可
-    }
-  } catch {}
-  return false;
-}
-
-// シュルカーボックスは色ごとにIDが違うため接尾辞でも判定する
-function isProtected(typeId) {
-  if (UNBREAKABLE.has(typeId)) return true;
-  if (typeId.endsWith("shulker_box")) return true;
-  if (typeId.endsWith("_bed")) return true;
-  if (typeId.endsWith("_command_block")) return true;
-  return false;
-}
-
-
 // applyKnockback はバージョンによって引数の形が違うため、両方に対応させる
 // 旧: applyKnockback(dirX, dirZ, 水平, 垂直)
 // 新: applyKnockback({x, z}, 垂直)
@@ -876,6 +1059,8 @@ function knockback(entity, dx, dz, horizontal, vertical) {
   } catch {}
   return false;
 }
+
+const fallBehavior = createFallBehavior({ knockback });
 
 const DIMENSIONS = ["overworld", "nether", "the_end"];
 
@@ -1065,9 +1250,8 @@ function aiTick(master, dim, dimId) {
     s.healingInventoryRetry = 100;
   }
 
-  // ---- 溶岩ダメージON中に溶岩へ落ちたら、何よりも先に脱出する ----
-  const inLavaNow = isLavaOn() && isInLavaOrFire(master, dim) === "lava";
-  if (lavaEscapeTick(master, dim, s, inLavaNow)) return;
+  // ---- 溶岩脱出中は通常のAI行動を止める ----
+  if (lavaBehavior.lavaEscapeTick(master, dim, s)) return;
 
   const loc = master.location;
   // 毎tick全プレイヤーを走査すると重くなるので、4tickごとに更新して使い回す
@@ -1121,12 +1305,10 @@ function aiTick(master, dim, dimId) {
   }
 
   // ---- 相手が下にいる → 崖から飛び降りる ----
-  if (dyUp <= -DROP_MIN) {
-    tryDescend(master, target, dim, s);
-  }
+  fallBehavior.tryDescend(master, target, dim, s);
 
   // ---- 溶岩が行く手を塞いでいる → ブロックを置いて渡る(lava onのみ) ----
-  tryLavaBridge(master, target, dim, s, d);
+  lavaBehavior.tryLavaBridge(master, target, dim, s, d);
 
   // ---- 囲い検知: 相手が近いのに壁で遮られて攻撃できない → 壁を壊す ----
   // (スタック検知は距離3超が条件のため、プレイヤーが自分の周りを
@@ -1179,68 +1361,16 @@ function aiTick(master, dim, dimId) {
 
 
 // ============================================================
-//  高所からの降下
-//  バニラの経路探索は落下ダメージを嫌って崖から降りようとしないため、
-//  水バケツMLGを持っているこのMobは自分から飛び降りるようにする
-// ============================================================
-const DROP_MIN = 2.5;      // 相手がこれ以上下にいたら降りる判断をする
-const DROP_SCAN = 24;      // 着地点を探す深さ
-
-function tryDescend(master, target, dim, s) {
-  if (s.dropCd > 0) return false;
-  if (!master.isOnGround) return false;
-
-  const loc = master.location;
-  const dy = target.location.y - loc.y;
-  if (dy > -DROP_MIN) return false;          // 相手が下にいない
-
-  const dx = target.location.x - loc.x;
-  const dz = target.location.z - loc.z;
-  const len = Math.sqrt(dx * dx + dz * dz);
-  if (len < 0.001) return false;
-  const nx = dx / len, nz = dz / len;
-
-  // 進行方向のすぐ先を調べる
-  const fx = loc.x + nx * 0.9;
-  const fz = loc.z + nz * 0.9;
-  try {
-    const at = dim.getBlock({ x: fx, y: loc.y, z: fz });
-    if (!at || !(at.isAir || at.isLiquid)) return false;   // 壁なので進めない
-
-    const below = dim.getBlock({ x: fx, y: loc.y - 1, z: fz });
-    if (below && !below.isAir && !below.isLiquid) return false; // まだ床がある
-  } catch { return false; }
-
-  // 着地点を確認する
-  let landing = null;
-  try {
-    const hit = dim.getBlockFromRay(
-      { x: fx, y: loc.y - 1.2, z: fz },
-      { x: 0, y: -1, z: 0 },
-      { maxDistance: DROP_SCAN, includeLiquidBlocks: true, includePassableBlocks: false }
-    );
-    if (hit && hit.block) landing = hit.block;
-  } catch { return false; }
-
-  // 着地点が見つからない = 奈落やあまりに深い落下 → 飛び降りない
-  if (!landing) return false;
-  // 溶岩の上にも飛び降りない
-  if (landing.typeId === "minecraft:lava" || landing.typeId === "minecraft:flowing_lava") {
-    return false;
-  }
-
-  // 崖なので踏み出す(落下中は水バケツMLGが働く)
-  knockback(master, nx, nz, 0.42, 0.02);
-  s.dropCd = 8;
-  return true;
-}
-
-// ============================================================
 //  ブロック積み上げ(パルクールタワー)
 //  ジャンプ → 空中で足元に設置 → 着地 → 再びジャンプ を繰り返して
 //  相手の高さまで一気に登る
 // ============================================================
 const PILLAR_BLOCK = "minecraft:cobblestone";
+const lavaBehavior = createLavaBehavior({
+  knockback,
+  isEditProtected,
+  pillarBlock: PILLAR_BLOCK,
+});
 const PILLAR_MAX = 40;      // 1回で積める最大段数
 const PILLAR_RANGE = 6;     // 相手がこれ以上横に離れたら中断
 const PILLAR_STEP = 0.22;   // 1tickあたりの上昇量(ブロック)
@@ -1436,23 +1566,7 @@ const RENDER_LIMITED = new Set([
 
 
 
-// ---------- コマンドによる溶岩脱出AIのON/OFF ----------
-// 溶岩・炎のダメージは常にバニラ処理で受け、防具で軽減される。
-system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvpbot:lava") return;
-  const m = (ev.message || "").trim().toLowerCase();
-  if (m !== "on" && m !== "off") {
-    world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:lava <on / off>");
-    world.sendMessage("§7  on = 溶岩からの脱出・橋渡しAIを有効 / off = 無効");
-    world.sendMessage(`§7  現在: ${isLavaOn() ? "有効" : "無効"}`);
-    world.sendMessage("§7  溶岩・炎のダメージは常に受け、防具で軽減されます");
-    return;
-  }
-  world.setDynamicProperty("pvp_lava", m === "on");
-  world.sendMessage(m === "on"
-    ? "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを有効にしました"
-    : "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを無効にしました");
-});
+registerLavaCommand();
 
 // ---------- コマンドによるターゲット選択 ----------
 // 使い方: /scriptevent pvpbot:target tag  /  /scriptevent pvpbot:target all
@@ -1572,56 +1686,19 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
 });
 
 
-// ワールドの再読込などで既存の個体が読み込まれたときにも、武器・見た目を適用し直す
-if (world.afterEvents.entityLoad) {
-  world.afterEvents.entityLoad.subscribe((ev) => {
-    const e = ev.entity;
-    if (!e || e.typeId !== MASTER_ID) return;
-    system.runTimeout(() => {
-      try {
-        equipWeapon(e);
-        equipLevelArmor(e);
-        equipOffhandShield(e);
-        syncSkin(e);
-        updateName(e);
-        applyLevelBuffs(e);
-        applyTargetMode(e);
-      } catch {}
-      initializeHealingInventory(e);
-    }, 10);
-  });
-}
-
-// ---------- スポーン時の初期設定 ----------
-world.afterEvents.entitySpawn.subscribe((ev) => {
-  const e = ev.entity;
-  if (!e || e.typeId !== MASTER_ID) return;
-
-  try {
-    broadcastMessage(`§ePVPbot（${LEVELS[getLevel(e)].name}）がゲームに入室しました`);
-  } catch (error) {
-    console.warn(`[PVPbot] 入室メッセージを送信できませんでした: ${error}`);
-  }
-
-  try {
-    system.runTimeout(() => {
-      try {
-        applyLevelBuffs(e);
-        initializeHealingInventory(e);
-        equipWeapon(e);
-        equipLevelArmor(e);
-        equipOffhandShield(e);
-        syncSkin(e);
-        updateName(e);
-        const h = e.getComponent("minecraft:health");
-        if (h) h.resetToMaxValue();
-      } catch (error) {
-        console.warn(`[PVPbot] スポーン時の初期化に失敗しました: ${error}`);
-      }
-    }, 10);
-  } catch (error) {
-    console.warn(`[PVPbot] スポーン時の初期化を予約できませんでした: ${error}`);
-  }
+registerSpawnSetup({
+  masterId: MASTER_ID,
+  levels: LEVELS,
+  getLevel,
+  broadcastMessage,
+  equipWeapon,
+  equipLevelArmor,
+  equipOffhandShield,
+  syncSkin,
+  updateName,
+  applyLevelBuffs,
+  applyTargetMode,
+  initializeHealingInventory,
 });
 
 // Level-specific custom spawn eggs set the entity's level before its normal initialization.
@@ -1666,95 +1743,12 @@ world.beforeEvents.itemUseOn.subscribe((ev) => {
   });
 });
 
-// ---------- 死亡時の処理 ----------
-function handleEntityDeath(ev) {
-  const dead = ev.deadEntity;
-  if (!dead) return;
-
-  if (dead.typeId === MASTER_ID) {
-    broadcastMessage("§e[PVPbot] Botの死亡イベントを検知しました");
-    let droppedAmount = 0;
-    try {
-      droppedAmount = dropInventoryItems(dead) || 0;
-    } catch (error) {
-      console.warn(`[PVPbot] 死亡時にインベントリアイテムを回収できませんでした: ${error}`);
-      broadcastMessage(`§c[PVPbot] インベントリアイテムのドロップ準備に失敗しました: ${error}`);
-    }
-
-    let killer;
-    let botName = "PVPbot";
-    let cause;
-    try { killer = ev.damageSource && ev.damageSource.damagingEntity; } catch {}
-    try { botName = dead.nameTag || botName; } catch {}
-    try { cause = ev.damageSource && ev.damageSource.cause; } catch {}
-
-    const causes = {
-      anvil: "金床に押しつぶされた",
-      blockExplosion: "爆発で倒された",
-      drowning: "溺死した",
-      entityExplosion: "爆発で倒された",
-      fall: "落下死した",
-      fallingBlock: "落下ブロックに押しつぶされた",
-      fire: "火で焼け死んだ",
-      fireTick: "火で焼け死んだ",
-      fireworks: "花火で倒された",
-      flyIntoWall: "壁に激突して倒れた",
-      freezing: "凍死した",
-      lava: "溶岩で焼け死んだ",
-      lightning: "雷に打たれた",
-      magic: "魔法で倒された",
-      magma: "マグマブロックで倒れた",
-      projectile: "飛び道具で倒された",
-      stalactite: "鍾乳石に貫かれた",
-      stalagmite: "尖った鍾乳石に貫かれた",
-      starve: "飢え死にした",
-      suffocation: "窒息死した",
-      void: "奈落に落ちた",
-      wither: "衰弱して倒れた",
-      sonicBoom: "ソニックブームで倒された",
-      maceSmash: "メイスで叩きつぶされた",
-    };
-    let deathMessage = `§f${botName}は倒された`;
-    try {
-      if (killer && killer.typeId === "minecraft:player") {
-        deathMessage = `§f${botName}は${killer.name}に殺害された`;
-      } else if (killer) {
-        const killerName = killer.nameTag || killer.typeId;
-        deathMessage = `§f${botName}は${killerName}に倒された`;
-      } else {
-        deathMessage = `§f${botName}は${causes[cause] || `${cause || "不明な原因"}で倒された`}`;
-      }
-    } catch (error) {
-      console.warn(`[PVPbot] 死因を取得できませんでした: ${error}`);
-    }
-    broadcastMessage(deathMessage);
-    broadcastMessage(droppedAmount > 0
-      ? `§e${botName}がゲームを退出しました（インベントリのアイテム ${droppedAmount} 個をドロップ）`
-      : `§e${botName}がゲームを退出しました（ドロップできるインベントリアイテムはありません）`);
-
-    // 死ぬ前にMLGで置いた水が残らないよう、先に回収する
-    const st = states.get(dead.id);
-    if (st) {
-      for (const w of st.placedWater) {
-        try {
-          const b = world.getDimension(w.dimId).getBlock({ x: w.x, y: w.y, z: w.z });
-          if (b && b.typeId === "minecraft:water") b.setType("minecraft:air");
-        } catch {}
-      }
-    }
-    states.delete(dead.id);
-    return;
-  }
-
-  const killer = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
-  if (dead.typeId === "minecraft:player" && killer && killer.typeId === MASTER_ID) {
-    try {
-      // マスターの全回復は演出ではなく仕様なので、設定に関わらず行う
-      const hp = killer.getComponent("minecraft:health");
-      if (hp) hp.resetToMaxValue();
-    } catch {}
-  }
-}
+registerDeathHandler({
+  masterId: MASTER_ID,
+  broadcastMessage,
+  dropInventoryItems,
+  states,
+});
 
 // ---------- コンボ補正 ----------
 world.afterEvents.entityHurt.subscribe((ev) => {
