@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourcePath = Join-Path $scriptDirectory "main.source.js"
+$messagePath = Join-Path $scriptDirectory "message.js"
 $configPath = Join-Path $scriptDirectory "inventory_config.js"
 $waterBucketPath = Join-Path $scriptDirectory "water_bucket.js"
 $blockProtectionPath = Join-Path $scriptDirectory "block_protection.js"
@@ -14,6 +15,7 @@ $editProtectionPath = Join-Path $scriptDirectory "edit_protection.js"
 $headPosePath = Join-Path $scriptDirectory "head_pose.js"
 $outputPath = Join-Path $scriptDirectory "main.js"
 $importLine = 'import { INVENTORY_CONFIG } from "./inventory_config.js";'
+$messageImportLine = 'import { MSG, logWarn, logError, broadcastChat } from "./message.js";'
 $waterImportLine = 'import { ensureWaterBucketInventory, tickWaterBucket } from "./water_bucket.js";'
 $blockProtectionImportLine = 'import { isProtected } from "./block_protection.js";'
 $spawnSetupImportLine = 'import { registerSpawnSetup } from "./spawn_setup.js";'
@@ -25,6 +27,7 @@ $editProtectionImportLine = 'import { isEditProtected } from "./edit_protection.
 $headPoseImportLine = 'import { updateHeadPose } from "./head_pose.js";'
 
 $source = [System.IO.File]::ReadAllText($sourcePath, [System.Text.Encoding]::UTF8)
+$messageContent = [System.IO.File]::ReadAllText($messagePath, [System.Text.Encoding]::UTF8)
 $config = [System.IO.File]::ReadAllText($configPath, [System.Text.Encoding]::UTF8)
 $waterBucket = [System.IO.File]::ReadAllText($waterBucketPath, [System.Text.Encoding]::UTF8)
 $blockProtection = [System.IO.File]::ReadAllText($blockProtectionPath, [System.Text.Encoding]::UTF8)
@@ -36,6 +39,9 @@ $fallBehavior = [System.IO.File]::ReadAllText($fallBehaviorPath, [System.Text.En
 $editProtection = [System.IO.File]::ReadAllText($editProtectionPath, [System.Text.Encoding]::UTF8)
 $headPose = [System.IO.File]::ReadAllText($headPosePath, [System.Text.Encoding]::UTF8)
 
+if (-not $source.Contains($messageImportLine)) {
+  throw "Expected message import was not found in $sourcePath"
+}
 if (-not $source.Contains($importLine)) {
   throw "Expected config import was not found in $sourcePath"
 }
@@ -65,6 +71,9 @@ if (-not $source.Contains($editProtectionImportLine)) {
 }
 if (-not $source.Contains($headPoseImportLine)) {
   throw "Expected head pose import was not found in $sourcePath"
+}
+if (-not $messageContent.StartsWith('import { world } from "@minecraft/server";')) {
+  throw "Unexpected message module format in $messagePath"
 }
 if (-not $config.StartsWith("export const INVENTORY_CONFIG =")) {
   throw "Unexpected inventory config format in $configPath"
@@ -114,7 +123,9 @@ if (-not $editProtection.Contains("export function isEditProtected(")) {
 if (-not $headPose.Contains("export function updateHeadPose(")) {
   throw "Expected head pose export was not found in $headPosePath"
 }
-
+$messageContent = $messageContent.Replace('import { world } from "@minecraft/server";', "")
+$messageContent = $messageContent.Replace("export const ", "const ")
+$messageContent = $messageContent.Replace("export function ", "function ")
 $config = $config.Replace("export const INVENTORY_CONFIG =", "const INVENTORY_CONFIG =")
 $waterBucket = $waterBucket.Replace('import { ItemStack, world } from "@minecraft/server";', "")
 $waterBucket = $waterBucket.Replace('import { INVENTORY_CONFIG } from "./inventory_config.js";', "")
@@ -131,16 +142,18 @@ $inventoryDrop = $inventoryDrop.Replace("export function ", "function ")
 $fallBehavior = $fallBehavior.Replace("export function ", "function ")
 $editProtection = $editProtection.Replace("export function ", "function ")
 $headPose = $headPose.Replace("export function ", "function ")
-$bundle = $source.Replace($importLine, $config)
-$bundle = $bundle.Replace($waterImportLine, $waterBucket)
-$bundle = $bundle.Replace($blockProtectionImportLine, $blockProtection)
-$bundle = $bundle.Replace($spawnSetupImportLine, $spawnSetup)
-$bundle = $bundle.Replace($deathHandlerImportLine, $deathHandler)
-$bundle = $bundle.Replace($lavaBehaviorImportLine, $lavaBehavior)
-$bundle = $bundle.Replace($inventoryDropImportLine, $inventoryDrop)
-$bundle = $bundle.Replace($fallBehaviorImportLine, $fallBehavior)
-$bundle = $bundle.Replace($editProtectionImportLine, $editProtection)
-$bundle = $bundle.Replace($headPoseImportLine, $headPose)
+$bundle = $source
+$bundle = $bundle -replace 'import\s*\{\s*MSG.*?\}\s*from\s*"\./message\.js";\r?\n?', $messageContent
+$bundle = $bundle -replace 'import\s*\{\s*INVENTORY_CONFIG.*?\}\s*from\s*"\./inventory_config\.js";\r?\n?', $config
+$bundle = $bundle -replace 'import\s*\{\s*ensureWaterBucketInventory.*?\}\s*from\s*"\./water_bucket\.js";\r?\n?', $waterBucket
+$bundle = $bundle -replace 'import\s*\{\s*isProtected.*?\}\s*from\s*"\./block_protection\.js";\r?\n?', $blockProtection
+$bundle = $bundle -replace 'import\s*\{\s*registerSpawnSetup.*?\}\s*from\s*"\./spawn_setup\.js";\r?\n?', $spawnSetup
+$bundle = $bundle -replace 'import\s*\{\s*registerDeathHandler.*?\}\s*from\s*"\./death_handler\.js";\r?\n?', $deathHandler
+$bundle = $bundle -replace 'import\s*\{\s*createLavaBehavior.*?\}\s*from\s*"\./lava_behavior\.js";\r?\n?', $lavaBehavior
+$bundle = $bundle -replace 'import\s*\{\s*createInventoryDropper.*?\}\s*from\s*"\./inventory_drop\.js";\r?\n?', $inventoryDrop
+$bundle = $bundle -replace 'import\s*\{\s*createFallBehavior.*?\}\s*from\s*"\./fall_behavior\.js";\r?\n?', $fallBehavior
+$bundle = $bundle -replace 'import\s*\{\s*isEditProtected.*?\}\s*from\s*"\./edit_protection\.js";\r?\n?', $editProtection
+$bundle = $bundle -replace 'import\s*\{\s*updateHeadPose.*?\}\s*from\s*"\./head_pose\.js";\r?\n?', $headPose
 $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($outputPath, $bundle, $utf8WithoutBom)
 Write-Output "Generated $outputPath"

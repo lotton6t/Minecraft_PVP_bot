@@ -5,6 +5,7 @@
 //        召喚イベントと5種類のレベル別スポーンエッグに対応
 // ============================================================
 import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
+import { MSG, logWarn, logError, broadcastChat } from "./message.js";
 import { INVENTORY_CONFIG } from "./inventory_config.js";
 import { ensureWaterBucketInventory, tickWaterBucket } from "./water_bucket.js";
 import { isProtected } from "./block_protection.js";
@@ -16,13 +17,23 @@ import { createFallBehavior } from "./fall_behavior.js";
 import { isEditProtected } from "./edit_protection.js";
 import { updateHeadPose } from "./head_pose.js";
 
+//ワールド読み込み時に、スポーンセットアップと死亡ハンドラを登録
 world.afterEvents.playerSpawn.subscribe((ev) => {
+  //初回スポーン時のみ通知を送信
   if (!ev.initialSpawn) return;
-  try {
-    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.24 を読み込みました");
-  } catch (error) {
-    console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
-  }
+
+  //10ティック（約0.5秒）待ってから言語を判定してメッセージを送る
+  system.runTimeout(() => {
+    try {
+      //プレイヤーのデータが完全に読み込まれた後に実行されるため、
+      //正常に「ja_JP」が取得できるようになります。
+      ev.player.sendMessage(getMsg(ev.player, "LOAD_SUCCESS"));
+    }
+    catch(error)
+    {
+      logError("LOAD_FAIL", error);
+    }
+  }, 10); //10ティック待機
 });
 
 const MASTER_ID = "pvp:master";

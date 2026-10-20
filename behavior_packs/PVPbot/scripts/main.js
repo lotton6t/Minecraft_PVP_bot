@@ -5,7 +5,92 @@
 //        召喚イベントと5種類のレベル別スポーンエッグに対応
 // ============================================================
 import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
-const INVENTORY_CONFIG = {
+
+
+// 1. 各言語ごとのメッセージテキスト定義
+const LANGUAGES = {
+  ja_JP: {
+    LOAD_SUCCESS: "§a[PVPbot] スクリプト v1.25.24 を読み込みました",
+    LOAD_FAIL: "起動通知を送信できませんでした",
+    HEAL_FAIL_EFFECT: "回復中の効果を付与できませんでした",
+    SPAWN_MESSAGE: (levelName) => `§ePVPbot（${levelName}）がゲームに入室しました`,
+    DEATH_DETECT: "§e[PVPbot] Botの死亡イベントを検知しました",
+    DEATH_FAIL_DROP: "§c[PVPbot] インベントリアイテムのドロップ準備に失敗しました",
+    EXIT_MESSAGE_DROP: (name, count) => `§e${name}がゲームを退出しました（インベントリのアイテム ${count} 個をドロップ）`,
+    EXIT_MESSAGE_NONE: (name) => `§e${name}がゲームを退出しました（ドロップできるインベントリアイテムはありません）`,
+  },
+  en_US: {
+    LOAD_SUCCESS: "§a[PVPbot] Script v1.25.24 loaded successfully.",
+    LOAD_FAIL: "Failed to send startup notification.",
+    HEAL_FAIL_EFFECT: "Failed to apply effects during healing.",
+    SPAWN_MESSAGE: (levelName) => `§ePVPbot (${levelName}) has joined the game.`,
+    DEATH_DETECT: "§e[PVPbot] Detected Bot death event.",
+    DEATH_FAIL_DROP: "§c[PVPbot] Failed to prepare inventory item drops.",
+    EXIT_MESSAGE_DROP: (name, count) => `§e${name} left the game (Dropped ${count} inventory items)`,
+    EXIT_MESSAGE_NONE: (name) => `§e${name} left the game (No inventory items to drop)`,
+  }
+};
+
+// 共通固定接頭辞
+const MSG_PREFIX = "[PVPbot]";
+
+// 2. プレイヤーの現在の設定言語を取得する関数（日本語以外はすべて en_US 扱い）
+function getPlayerLang(player) {
+  try {
+    // プレイヤーの言語設定を取得
+    const lang = player.clientSystemInfo?.language; 
+    
+    // 💡 もしデータが取得できて、かつ「en_US」など LANGUAGES に登録されている言語ならそれを返す
+    if (lang && LANGUAGES[lang]) {
+      return lang;
+    }
+    
+    // 💡 取得に失敗した（undefinedだった）場合や、未登録の言語だった場合は、
+    // 基本言語である「日本語（ja_JP）」をデフォルトとして返す
+    return "ja_JP";
+  } catch {
+    // 万が一エラーが起きても日本語を返す
+    return "ja_JP"; 
+  }
+}
+
+// 3. メッセージをそのプレイヤーの言語で取得する関数（キー指定用）
+function getMsg(player, key) {
+  const lang = getPlayerLang(player);
+  // 指定された言語にキーがなければ日本語を返す
+  return LANGUAGES[lang][key] || LANGUAGES["ja_JP"][key] || key;
+}
+
+// 4. メッセージをそのプレイヤーの言語で取得する関数（関数/引数が必要な動的テキスト用）
+function getMsgFn(player, key, ...args) {
+  const lang = getPlayerLang(player);
+  const fn = LANGUAGES[lang][key] || LANGUAGES["ja_JP"][key];
+  return typeof fn === "function" ? fn(...args) : "";
+}
+
+// ログ出力用の関数（サーバーコンソール用なので英語固定、または固定テキスト）
+function logWarn(msgStr, error = "") {
+  const detail = error ? `: ${error}` : "";
+  console.warn(`${MSG_PREFIX} ${msgStr}${detail}`);
+}
+
+function logError(msgStr, error = "") {
+  const detail = error ? `: ${error}` : "";
+  console.error(`${MSG_PREFIX} ${msgStr}${detail}`);
+}
+
+// チャット配信用関数（プレイヤーごとに言語を切り替えて配信）
+function broadcastChat(key, ...args) {
+  try {
+    for (const player of world.getPlayers()) {
+      // そのプレイヤーの言語に翻訳したテキストを個別に送る
+      const text = args.length > 0 ? getMsgFn(player, key, ...args) : getMsg(player, key);
+      player.sendMessage(text);
+    }
+  } catch (error) {
+    console.error(`${MSG_PREFIX} Failed to broadcast message: ${error}`);
+  }
+}const INVENTORY_CONFIG = {
   defaultWeapon: "minecraft:netherite_sword",
   shield: "minecraft:shield",
   waterBucket: {
@@ -47,7 +132,6 @@ const INVENTORY_CONFIG = {
     },
   },
 };
-
 
 
 
@@ -245,7 +329,6 @@ function tickWaterBucket(master, dim, dimId, state, isEditProtected) {
     }
   }
 }
-
 const UNBREAKABLE = new Set([
   "minecraft:bedrock", "minecraft:barrier", "minecraft:deny", "minecraft:allow",
   "minecraft:border_block", "minecraft:light_block", "minecraft:moving_block",
@@ -278,7 +361,6 @@ function isProtected(typeId) {
   if (typeId.endsWith("_command_block")) return true;
   return false;
 }
-
 
 function registerSpawnSetup({
   masterId,
@@ -344,7 +426,6 @@ function registerSpawnSetup({
     }
   });
 }
-
 
 function registerDeathHandler(dependencies) {
   world.afterEvents.entityDie.subscribe((ev) => handleEntityDeath(ev, dependencies));
@@ -440,7 +521,6 @@ function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems,
     } catch {}
   }
 }
-
 
 function isLavaOn() {
   return world.getDynamicProperty("pvp_lava") === true;
@@ -593,7 +673,6 @@ function registerLavaCommand() {
   });
 }
 
-
 function createInventoryDropper({ getBotInventory, broadcastMessage }) {
   return function dropInventoryItems(master) {
     const container = getBotInventory(master);
@@ -621,8 +700,7 @@ function createInventoryDropper({ getBotInventory, broadcastMessage }) {
     }, 1);
     return items.reduce((total, item) => total + item.amount, 0);
   };
-}
-function createFallBehavior({ knockback }) {
+}function createFallBehavior({ knockback }) {
   const DROP_MIN = 2.5;
   const DROP_SCAN = 24;
 
@@ -671,8 +749,7 @@ function createFallBehavior({ knockback }) {
   }
 
   return { tryDescend };
-}
-const PROTECT_SCAN_DEPTH = 128;
+}const PROTECT_SCAN_DEPTH = 128;
 
 function isEditProtected(dim, x, y, z) {
   try {
@@ -691,8 +768,7 @@ function isEditProtected(dim, x, y, z) {
     }
   } catch {}
   return false;
-}
-function updateHeadPose(master, state) {
+}function updateHeadPose(master, state) {
   try {
     const fallingLook = state.waterMlgLookDown;
     const target = state.cachedTarget && state.cachedTarget.player;
@@ -747,14 +823,23 @@ function updateHeadPose(master, state) {
     }
   }
 }
-
+//ワールド読み込み時に、スポーンセットアップと死亡ハンドラを登録
 world.afterEvents.playerSpawn.subscribe((ev) => {
+  //初回スポーン時のみ通知を送信
   if (!ev.initialSpawn) return;
-  try {
-    ev.player.sendMessage("§a[PVPbot] スクリプト v1.25.24 を読み込みました");
-  } catch (error) {
-    console.error(`[PVPbot] 起動通知を送信できませんでした: ${error}`);
-  }
+
+  //10ティック（約0.5秒）待ってから言語を判定してメッセージを送る
+  system.runTimeout(() => {
+    try {
+      //プレイヤーのデータが完全に読み込まれた後に実行されるため、
+      //正常に「ja_JP」が取得できるようになります。
+      ev.player.sendMessage(getMsg(ev.player, "LOAD_SUCCESS"));
+    }
+    catch(error)
+    {
+      logError("LOAD_FAIL", error);
+    }
+  }, 10); //10ティック待機
 });
 
 const MASTER_ID = "pvp:master";
