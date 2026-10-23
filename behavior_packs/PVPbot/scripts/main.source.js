@@ -473,48 +473,6 @@ registerSpawnSetup({
   initializeInventory,
 });
 
-// Level-specific custom spawn eggs set the entity's level before its normal initialization.
-world.beforeEvents.itemUseOn.subscribe((ev) => {
-  const level = SPAWN_EGG_LEVELS[ev.itemStack.typeId];
-  if (!level || ev.source.typeId !== "minecraft:player") return;
-
-  ev.cancel = true;
-  const player = ev.source;
-  const dimension = ev.block.dimension;
-  const location = { ...ev.block.location };
-  switch (ev.blockFace) {
-    case Direction.Up: location.y += 1; break;
-    case Direction.Down: location.y -= 1; break;
-    case Direction.North: location.z -= 1; break;
-    case Direction.South: location.z += 1; break;
-    case Direction.West: location.x -= 1; break;
-    case Direction.East: location.x += 1; break;
-  }
-  const eggId = ev.itemStack.typeId;
-
-  system.run(() => {
-    try {
-      const master = dimension.spawnEntity(MASTER_ID, location);
-      master.triggerEvent(`pvp:set_level_${level}`);
-
-      if (player.getGameMode() !== GameMode.creative) {
-        const equippable = player.getComponent("minecraft:equippable");
-        const held = equippable && equippable.getEquipment(EquipmentSlot.Mainhand);
-        if (held && held.typeId === eggId) {
-          if (held.amount <= 1) {
-            setMainhandItem(player, undefined, "スポーンエッグの消費");
-          } else {
-            held.amount--;
-            setMainhandItem(player, held, "スポーンエッグの消費");
-          }
-        }
-      }
-    } catch (error) {
-      player.sendMessage(`§c[PVPbot] スポーンエッグを使用できませんでした: ${error}`);
-    }
-  });
-});
-
 registerDeathHandler({
   masterId: MASTER_ID,
   broadcastMessage,

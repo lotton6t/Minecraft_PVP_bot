@@ -461,36 +461,47 @@ function registerSpawnSetup({
     });
   }
 
-  world.afterEvents.entitySpawn.subscribe((ev) => {
-    const entity = ev.entity;
-    if (!entity || entity.typeId !== masterId) return;
+// スポーン時の初期化処理  
+world.afterEvents.entitySpawn.subscribe((ev) => {
+  const entity = ev.entity;
+  if (!entity || entity.typeId !== masterId) return;
 
-    try {
-      broadcastMessage(`§ePVPbot（${levels[getLevel(entity)].name}）がゲームに入室しました`);
-    } catch (error) {
-      console.warn(`[PVPbot] 入室メッセージを送信できませんでした: ${error}`);
-    }
+  // 卵のバグ対策：ボットの初期化直前に、名タグや周囲の状況からレベルを強制的に再判定する
+  try {
+    const properties = entity.getComponent("minecraft:health");
+    // スポーン時に一時的に名前からレベルを割り出す、またはプロパティを安全に上書き
+    const currentLevel = getLevel(entity);
+    entity.setProperty("pvp:skin_level", currentLevel);
+  } catch {}
 
-    try {
-      system.runTimeout(() => {
-        try {
-          applyLevelBuffs(entity);
-          initializeInventory(entity);
-          equipWeapon(entity);
-          equipLevelArmor(entity);
-          equipOffhandShield(entity);
-          syncSkin(entity);
-          updateName(entity);
-          const health = entity.getComponent("minecraft:health");
-          if (health) health.resetToMaxValue();
-        } catch (error) {
-          console.warn(`[PVPbot] スポーン時の初期化に失敗しました: ${error}`);
-        }
-      }, 10);
-    } catch (error) {
-      console.warn(`[PVPbot] スポーン時の初期化を予約できませんでした: ${error}`);
-    }
-  });
+  try {
+    broadcastChat("SPAWN_MESSAGE", levels[getLevel(entity)].name);
+  } catch (error) {
+    console.warn(`[PVPbot] 入室メッセージを送信できませんでした: ${error}`);
+  }
+
+  try {
+    system.runTimeout(() => {
+      try {
+        // スポーンして0.5秒後に、確定した正しいレベルの装備とバフを確実に配る
+        applyLevelBuffs(entity);
+        initializeInventory(entity);
+        equipWeapon(entity);
+        equipLevelArmor(entity);
+        equipOffhandShield(entity);
+        syncSkin(entity);
+        updateName(entity);
+        
+        const health = entity.getComponent("minecraft:health");
+        if (health) health.resetToMaxValue();
+      } catch (error) {
+        console.warn(`[PVPbot] スポーン時の初期化に失敗しました: ${error}`);
+      }
+    }, 10);
+  } catch (error) {
+    console.warn(`[PVPbot] スポーン時の初期化を予約できませんでした: ${error}`);
+  }
+});
 }
 
 function registerDeathHandler(dependencies) {
@@ -1919,48 +1930,6 @@ registerSpawnSetup({
   applyLevelBuffs,
   applyTargetMode,
   initializeInventory,
-});
-
-// Level-specific custom spawn eggs set the entity's level before its normal initialization.
-world.beforeEvents.itemUseOn.subscribe((ev) => {
-  const level = SPAWN_EGG_LEVELS[ev.itemStack.typeId];
-  if (!level || ev.source.typeId !== "minecraft:player") return;
-
-  ev.cancel = true;
-  const player = ev.source;
-  const dimension = ev.block.dimension;
-  const location = { ...ev.block.location };
-  switch (ev.blockFace) {
-    case Direction.Up: location.y += 1; break;
-    case Direction.Down: location.y -= 1; break;
-    case Direction.North: location.z -= 1; break;
-    case Direction.South: location.z += 1; break;
-    case Direction.West: location.x -= 1; break;
-    case Direction.East: location.x += 1; break;
-  }
-  const eggId = ev.itemStack.typeId;
-
-  system.run(() => {
-    try {
-      const master = dimension.spawnEntity(MASTER_ID, location);
-      master.triggerEvent(`pvp:set_level_${level}`);
-
-      if (player.getGameMode() !== GameMode.creative) {
-        const equippable = player.getComponent("minecraft:equippable");
-        const held = equippable && equippable.getEquipment(EquipmentSlot.Mainhand);
-        if (held && held.typeId === eggId) {
-          if (held.amount <= 1) {
-            setMainhandItem(player, undefined, "スポーンエッグの消費");
-          } else {
-            held.amount--;
-            setMainhandItem(player, held, "スポーンエッグの消費");
-          }
-        }
-      }
-    } catch (error) {
-      player.sendMessage(`§c[PVPbot] スポーンエッグを使用できませんでした: ${error}`);
-    }
-  });
 });
 
 registerDeathHandler({

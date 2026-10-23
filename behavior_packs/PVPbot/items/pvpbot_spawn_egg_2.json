@@ -4,7 +4,8 @@
     "description": {
       "identifier": "pvpbot:spawn_egg_2",
       "menu_category": {
-        "category": "items"
+        "category": "nature",
+        "group": "itemGroup.name.pvpbotegg"
       }
     },
     "components": {
@@ -16,7 +17,8 @@
       },
       "minecraft:max_stack_size": 64,
       "minecraft:entity_placer": {
-        "entity": "pvp:master"
+        "entity": "pvp:master",
+        "event": "pvp:set_level_2"
       }
     }
   }
