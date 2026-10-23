@@ -6,105 +6,157 @@
 // ============================================================
 import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
 
+const MSG_DATA = {
+  LOAD_SUCCESS: {
+    JPN: "§a[PVPbot] スクリプト v1.25.24 を読み込みました",
+    ENG: "§a[PVPbot] Script v1.25.24 loaded successfully."
+  },
+  LOAD_FAIL: {
+    JPN: "起動通知を送信できませんでした",
+    ENG: "Failed to send startup notification."
+  },
+  HEAL_FAIL_EFFECT: {
+    JPN: "回復中の効果を付与できませんでした",
+    ENG: "Failed to apply effects during healing."
+  },
+  DEATH_DETECT: {
+    JPN: "§e[PVPbot] Botの死亡イベントを検知しました",
+    ENG: "§e[PVPbot] Detected Bot death event."
+  },
+  DEATH_FAIL_DROP: {
+    JPN: "§c[PVPbot] インベントリアイテムのドロップ準備に失敗しました",
+    ENG: "§c[PVPbot] Failed to prepare inventory item drops."
+  },
+  SPAWN_MESSAGE: {
+    JPN: (levelName) => `§ePVPbot（${levelName}）がゲームに入室しました`,
+    ENG: (levelName) => `§ePVPbot (${levelName}) has joined the game.`
+  },
+  EXIT_MESSAGE_DROP: {
+    JPN: (name, count) => `§e${name}がゲームを退出しました（インベントリのアイテム ${count} 個をドロップ）`,
+    ENG: (name, count) => `§e${name} left the game (Dropped ${count} inventory items)`
+  },
+  EXIT_MESSAGE_NONE: {
+    JPN: (name) => `§e${name}がゲームを退出しました（ドロップできるインベントリアイテムはありません）`,
+    ENG: (name) => `§e${name} left the game (No inventory items to drop)`
+  }
+};
 
 // ============================================================
 // 【設定】デバッグモードのオン(true) / オフ(false)の切り替え
 // ============================================================
 const IS_DEBUG = true; 
 
-// ============================================================
-// 言語テキストの一元管理（[0]が日本語、[1]が英語）
-// ============================================================
-const MSG_DATA = {
-  LOAD_SUCCESS: [
-    "§a[PVPbot] スクリプト v1.25.24 を読み込みました", 
-    "§a[PVPbot] Script v1.25.24 loaded successfully."
-  ],
-  LOAD_FAIL: [
-    "起動通知を送信できませんでした", 
-    "Failed to send startup notification."
-  ],
-  HEAL_FAIL_EFFECT: [
-    "回復中の効果を付与できませんでした", 
-    "Failed to apply effects during healing."
-  ],
-  DEATH_DETECT: [
-    "§e[PVPbot] Botの死亡イベントを検知しました",
-    "§e[PVPbot] Detected Bot death event."
-  ],
-  DEATH_FAIL_DROP: [
-    "§c[PVPbot] インベントリアイテムのドロップ準備に失敗しました",
-    "§c[PVPbot] Failed to prepare inventory item drops."
-  ],
-  SPAWN_MESSAGE: [
-    (levelName) => `§ePVPbot（${levelName}）がゲームに入室しました`,
-    (levelName) => `§ePVPbot (${levelName}) has joined the game.`
-  ],
-  EXIT_MESSAGE_DROP: [
-    (name, count) => `§e${name}がゲームを退出しました（インベントリのアイテム ${count} 個をドロップ）`,
-    (name, count) => `§e${name} left the game (Dropped ${count} inventory items)`
-  ],
-  EXIT_MESSAGE_NONE: [
-    (name) => `§e${name}がゲームを退出しました（ドロップできるインベントリアイテムはありません）`,
-    (name) => `§e${name} left the game (No inventory items to drop)`
-  ]
-};
-
 // 共通固定接頭辞
 const MSG_PREFIX = "[PVPbot]";
 
-// プレイヤーの言語に応じて配列のインデックス（0=日本語、1=英語）を返す関数
-function getLangIndex(player) {
+// 全プレイヤーにメッセージを送信する関数
+function broadcastMessage(message) {
+  let players;
   try {
-    const lang = player.clientSystemInfo?.language;
-    if (!lang) return 0; // 言語データがまだ読み込めていない初期状態は日本語(0)にする
+    players = world.getPlayers();
+  } catch (error) {
+    console.error(`[PVPbot] プレイヤー一覧を取得できませんでした: ${error}`);
+    return;
+  }
+  for (const player of players) {
+    try {
+      player.sendMessage(message);
+    } catch (error) {
+      console.error(`[PVPbot] ${player.name}へのメッセージ送信に失敗しました: ${error}`);
+    }
+  }
+}
+
+// プレイヤーの言語に応じてJPNまたはENGを返す
+function getLangKey(player) {
+  try
+  {
+    const lang = player.clientSystemInfo?.language; // プレイヤーの言語情報を取得
+
+    // 言語情報が取得できなかった場合
+    if (!lang)
+    {
+      // デバッグモードの場合
+      if(IS_DEBUG)
+      {
+        console.warn(`${MSG_PREFIX} 言語取得できないため日本語に設定します: ${player.name}.`);
+      }
+      return "JPN";
+    }
 
     // 文字列をすべて小文字に変換（例: "ja_JP" も "ja-JP" も "ja_jp" に統一される）
     const lowerLang = lang.toLowerCase();
 
-    // "ja" という文字がどこかに含まれていれば日本語(0)、それ以外は英語(1)と判定
-    return lowerLang.includes("ja") ? 0 : 1;
-  } catch {
-    return 0; // 万が一エラーが起きても日本語をデフォルトにする
+    return lowerLang.includes("ja") ? "JPN" : "ENG";
+  }
+  catch
+  {
+    // デバッグモードの場合
+    if(IS_DEBUG)
+    {
+      console.warn(`${MSG_PREFIX} 例外発生のため日本語に設定します: ${player.name}.`);
+    }
+    return "JPN"; // 万が一エラーが起きても日本語をデフォルトにする
   }
 }
 
 // 【通常用】チャット配信用関数 (多言語を判定して全員へ送信)
 function broadcastChat(key, ...args) {
-  try {
-    const item = MSG_DATA[key];
-    if (!item) return;
+  try
+  {
+    const item = MSG_DATA[key]; // メッセージキーに対応する言語別定義を取得
 
-    for (const player of world.getPlayers()) {
-      const idx = getLangIndex(player);
-      const content = item[idx] || item[0]; // 万が一指定インデックスが空なら日本語を出す
+    // メッセージキーが存在しない場合
+    if (!item)
+    {
+      // 警告を出して処理を中断
+      console.warn(`${MSG_PREFIX} Message key "${key}" not found.`);
+      return;
+    }
+
+    // メッセージを全プレイヤーに送信
+    for (const player of world.getPlayers())
+    {
+      const langKey = getLangKey(player);         // プレイヤーの言語に応じたキーを取得
+      const content = item[langKey] || item.JPN;  // 言語キーに対応するメッセージを取得、存在しなければ日本語を使用
 
       // 中身が関数（動的テキスト）か、ただの文字列かで処理を分ける
       const text = typeof content === "function" ? content(...args) : content;
       player.sendMessage(text);
     }
-  } catch (error) {
+  }
+  catch (error)
+  {
     console.error(`${MSG_PREFIX} Failed to broadcast message: ${error}`);
   }
 }
 
 // 【デバッグ用】チャット配信用関数 (言語識別なし・そのまま送信)
 function broadcastDebug(text) {
-  try {
-    if (!IS_DEBUG) return;
+  try
+  {
+    // デバッグモードでない場合は何もしない
+    if (!IS_DEBUG) {return;}
+
+    // デバッグ用のメッセージを整形
     const formattedText = `§7${MSG_PREFIX} [DEBUG] ${text}`;
-    for (const player of world.getPlayers()) {
+    for (const player of world.getPlayers())
+    {
       player.sendMessage(formattedText);
     }
-  } catch (error) {
+  }
+  catch (error)
+  {
     console.error(`${MSG_PREFIX} Failed to broadcast debug message: ${error}`);
   }
 }
 
 // 外部からデバッグ状態を確認するための関数
-function isDebugMode() {
+function isDebugMode()
+{
   return IS_DEBUG;
-}const INVENTORY_CONFIG = {
+}
+const INVENTORY_CONFIG = {
   defaultWeapon: "minecraft:netherite_sword",
   shield: "minecraft:shield",
   waterBucket: {
@@ -388,7 +440,7 @@ function registerSpawnSetup({
   updateName,
   applyLevelBuffs,
   applyTargetMode,
-  initializeHealingInventory,
+  initializeInventory,
 }) {
   if (world.afterEvents.entityLoad) {
     world.afterEvents.entityLoad.subscribe((ev) => {
@@ -404,7 +456,7 @@ function registerSpawnSetup({
           applyLevelBuffs(entity);
           applyTargetMode(entity);
         } catch {}
-        initializeHealingInventory(entity);
+        initializeInventory(entity);
       }, 10);
     });
   }
@@ -423,7 +475,7 @@ function registerSpawnSetup({
       system.runTimeout(() => {
         try {
           applyLevelBuffs(entity);
-          initializeHealingInventory(entity);
+          initializeInventory(entity);
           equipWeapon(entity);
           equipLevelArmor(entity);
           equipOffhandShield(entity);
@@ -669,23 +721,6 @@ function createLavaBehavior({ knockback, isEditProtected, pillarBlock }) {
   return { lavaEscapeTick, tryLavaBridge };
 }
 
-function registerLavaCommand() {
-  system.afterEvents.scriptEventReceive.subscribe((ev) => {
-    if (ev.id !== "pvpbot:lava") return;
-    const message = (ev.message || "").trim().toLowerCase();
-    if (message !== "on" && message !== "off") {
-      world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:lava <on / off>");
-      world.sendMessage("§7  on = 溶岩からの脱出・橋渡しAIを有効 / off = 無効");
-      world.sendMessage(`§7  現在: ${isLavaOn() ? "有効" : "無効"}`);
-      world.sendMessage("§7  溶岩・炎のダメージは常に受け、防具で軽減されます");
-      return;
-    }
-    world.setDynamicProperty("pvp_lava", message === "on");
-    world.sendMessage(message === "on"
-      ? "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを有効にしました"
-      : "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを無効にしました");
-  });
-}
 
 function createInventoryDropper({ getBotInventory, broadcastMessage }) {
   return function dropInventoryItems(master) {
@@ -763,7 +798,22 @@ function createInventoryDropper({ getBotInventory, broadcastMessage }) {
   }
 
   return { tryDescend };
-}const PROTECT_SCAN_DEPTH = 128;
+}// Support both applyKnockback signatures used by different Minecraft versions.
+// Legacy: applyKnockback(dirX, dirZ, horizontal, vertical)
+// Current: applyKnockback({ x, z }, vertical)
+function knockback(entity, dx, dz, horizontal, vertical) {
+  try {
+    entity.applyKnockback(dx, dz, horizontal, vertical);
+    return true;
+  } catch {}
+  try {
+    entity.applyKnockback({ x: dx * horizontal, z: dz * horizontal }, vertical);
+    return true;
+  } catch {}
+  return false;
+}
+
+const PROTECT_SCAN_DEPTH = 128;
 
 function isEditProtected(dim, x, y, z) {
   try {
@@ -837,6 +887,592 @@ function isEditProtected(dim, x, y, z) {
     }
   }
 }
+
+function createHealingHandler({
+  inventoryConfig,
+  getLevel,
+  getState,
+  getBotInventory,
+  cfg,
+  broadcastMessage,
+  getHealingItem,
+  getMainhandMode,
+  updateMainhandMode,
+  equipWeapon,
+}) {
+  function consumeHealingItem(master) {
+    const healingItem = inventoryConfig.levels[getLevel(master)].healingItem;
+    const state = getState(master);
+    if (state.healingItemId !== healingItem.id || state.healingItemAmount < 1) return false;
+    state.healingItemAmount--;
+    try {
+      const container = getBotInventory(master);
+      const item = container.getItem(0);
+      if (item && item.typeId === healingItem.id) {
+        container.setItem(0, state.healingItemAmount > 0
+          ? new ItemStack(healingItem.id, state.healingItemAmount)
+          : undefined);
+      }
+    } catch (error) {
+      console.warn(`[PVPbot] 回復アイテム数をインベントリに反映できませんでした: ${error}`);
+    }
+    state.healingItemId = healingItem.id;
+    return true;
+  }
+
+  return function tryStartHealing(master) {
+    const state = getState(master);
+    const config = cfg(master);
+    const health = master.getComponent("minecraft:health");
+    if (!health) return false;
+
+    const maxHealth = health.effectiveMax;
+    const currentHealth = health.currentValue;
+    if (!Number.isFinite(maxHealth) || maxHealth <= 0 || !Number.isFinite(currentHealth)) return false;
+    const healthRatio = currentHealth / maxHealth;
+    if (healthRatio > config.healThr) return false;
+    if (state.healStatusCd <= 0) {
+      state.healStatusCd = 40;
+      broadcastMessage(
+        `[PVPbot] 回復判定: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)} ` +
+        `(${Math.round(healthRatio * 100)}%)、しきい値 ${Math.round(config.healThr * 100)}%、` +
+        `食料 ${state.healingItemAmount}個、待機 ${Math.ceil(state.healCd / 20)}秒、回復中 ${state.healing}`
+      );
+    }
+    if (state.healing || state.healCd > 0 || state.healingItemAmount < 1) return false;
+
+    if (!consumeHealingItem(master)) {
+      state.healCd = config.healCd;
+      broadcastMessage("[PVPbot] 回復を開始できません: 食料の残数がありません");
+      return false;
+    }
+
+    const healingItem = getHealingItem(master);
+    state.healing = true;
+    const mainhandMode = getMainhandMode(master, state);
+    const switchedToModeItem = updateMainhandMode(master, true);
+
+    const mainhandStatus = !switchedToModeItem
+      ? "手持ちの切り替えに失敗しました"
+      : mainhandMode === "falling"
+        ? "落下中のため水バケツを保持します"
+        : `${healingItem.id.replace("minecraft:", "")}（残り${state.healingItemAmount}個）`;
+    broadcastMessage(`§e[PVPbot] 回復開始: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)}、${mainhandStatus}`);
+
+    state.healCd = config.healCd;
+    try {
+      master.addEffect("slowness", 30, { amplifier: 5, showParticles: false });
+      master.addEffect("weakness", 30, { amplifier: 5, showParticles: false });
+    } catch (error) {
+      console.warn(`[PVPbot] 回復中の効果を付与できませんでした: ${error}`);
+    }
+    for (let i = 0; i < 3; i++) {
+      system.runTimeout(() => {
+        try {
+          master.dimension.playSound("random.eat", master.location, { volume: 1.0 });
+        } catch {}
+      }, i * 10);
+    }
+
+    system.runTimeout(() => {
+      try {
+        if (!master.isValid) return;
+        const currentHealthComponent = master.getComponent("minecraft:health");
+        if (!currentHealthComponent || currentHealthComponent.currentValue <= 0) return;
+
+        const before = currentHealthComponent.currentValue;
+        const targetHealth = Math.min(currentHealthComponent.effectiveMax, before + config.healAmt);
+        if (Number.isFinite(targetHealth) && targetHealth > 0) {
+          currentHealthComponent.setCurrentValue(targetHealth);
+          broadcastMessage(
+            `§a[PVPbot] 回復しました（体力 ${Math.round(before)} → ${Math.round(currentHealthComponent.currentValue)}）`
+          );
+        }
+
+        if (healingItem.id === "minecraft:golden_apple") {
+          master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
+          master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
+        }
+        master.dimension.playSound("random.burp", master.location);
+      } catch (error) {
+        console.warn(`[PVPbot] 回復処理に失敗しました: ${error}`);
+      } finally {
+        state.healing = false;
+        try {
+          if (master.isValid && master.getComponent("minecraft:health")?.currentValue > 0) {
+            equipWeapon(master);
+          }
+        } catch (error) {
+          console.warn(`[PVPbot] 回復後に武器を戻せませんでした: ${error}`);
+        }
+      }
+    }, 30);
+    return true;
+  };
+}
+
+
+
+const PILLAR_BLOCK = "minecraft:cobblestone";
+
+function createPillarBehavior({ isEditProtected, isProtected }) {
+  const PILLAR_MAX = 40;
+  const PILLAR_RANGE = 6;
+  const PILLAR_STEP = 0.22;
+  const PILLAR_CLEAR = 1.08;
+  const PILLAR_SETTLE = 2;
+
+  function startPillar(master, state) {
+    const location = master.location;
+    if (isEditProtected(master.dimension, location.x, location.y, location.z)) return;
+    state.pillar = {
+      active: true,
+      bx: Math.floor(location.x),
+      bz: Math.floor(location.z),
+      placeY: null,
+      phase: "jump",
+      t: 0,
+      placed: 0,
+      fails: 0,
+    };
+  }
+
+  function stopPillar(state) {
+    if (state.pillar) state.pillar.active = false;
+  }
+
+  function pillarTick(master, target, dim, state) {
+    const pillar = state.pillar;
+    if (!pillar || !pillar.active) return false;
+
+    const location = master.location;
+    const dx = target.location.x - location.x;
+    const dz = target.location.z - location.z;
+    const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+    const verticalDistance = target.location.y - location.y;
+
+    if (verticalDistance < 1.0 || pillar.placed >= PILLAR_MAX ||
+        horizontalDistance > PILLAR_RANGE || pillar.fails > 3) {
+      stopPillar(state);
+      return false;
+    }
+
+    pillar.t++;
+    let desiredY = location.y;
+
+    if (pillar.phase === "jump") {
+      let placementY = Math.floor(location.y + 0.02);
+      try {
+        const blockBelow = dim.getBlock({ x: pillar.bx, y: placementY, z: pillar.bz });
+        if (blockBelow && !blockBelow.isAir && !blockBelow.isLiquid) placementY++;
+      } catch {}
+
+      try {
+        const targetBlock = dim.getBlock({ x: pillar.bx, y: placementY, z: pillar.bz });
+        if (targetBlock && !targetBlock.isAir && !targetBlock.isLiquid) {
+          stopPillar(state);
+          return false;
+        }
+      } catch {}
+
+      try {
+        const headBlock = dim.getBlock({ x: pillar.bx, y: placementY + 2, z: pillar.bz });
+        if (headBlock && !headBlock.isAir && !headBlock.isLiquid) {
+          if (isProtected(headBlock.typeId)) {
+            stopPillar(state);
+            return false;
+          }
+          dim.runCommand(`setblock ${pillar.bx} ${placementY + 2} ${pillar.bz} air destroy`);
+        }
+      } catch {}
+
+      pillar.placeY = placementY;
+      pillar.phase = "rise";
+      pillar.t = 0;
+    } else if (pillar.phase === "rise") {
+      const goalY = pillar.placeY + PILLAR_CLEAR;
+      desiredY = Math.min(location.y + PILLAR_STEP, goalY);
+
+      if (desiredY >= goalY - 0.001) {
+        desiredY = goalY;
+        let placed = false;
+        try {
+          const block = dim.getBlock({ x: pillar.bx, y: pillar.placeY, z: pillar.bz });
+          if (block && (block.isAir || block.isLiquid)) {
+            block.setType(PILLAR_BLOCK);
+            placed = true;
+            dim.playSound("use.stone", {
+              x: pillar.bx + 0.5,
+              y: pillar.placeY + 0.5,
+              z: pillar.bz + 0.5,
+            });
+            dim.spawnParticle("minecraft:crop_growth_emitter", {
+              x: pillar.bx + 0.5,
+              y: pillar.placeY + 1.1,
+              z: pillar.bz + 0.5,
+            });
+          }
+        } catch {}
+
+        if (placed) {
+          pillar.placed++;
+          pillar.fails = 0;
+        } else {
+          pillar.fails++;
+        }
+        pillar.phase = "settle";
+        pillar.t = 0;
+      } else if (pillar.t > 20) {
+        pillar.fails++;
+        pillar.phase = "jump";
+        pillar.t = 0;
+      }
+    } else if (pillar.phase === "settle") {
+      desiredY = pillar.placeY + 1.0;
+      if (pillar.t >= PILLAR_SETTLE) {
+        pillar.phase = "jump";
+        pillar.t = 0;
+      }
+    }
+
+    try {
+      master.teleport(
+        { x: pillar.bx + 0.5, y: desiredY, z: pillar.bz + 0.5 },
+        { dimension: dim, keepVelocity: false }
+      );
+    } catch {
+      stopPillar(state);
+      return false;
+    }
+
+    return true;
+  }
+
+  return { startPillar, pillarTick };
+}
+
+const pillarBehavior = createPillarBehavior({ isEditProtected, isProtected });
+
+
+function createMainhandController({ inventoryConfig, getLevel, getState }) {
+  function getWeaponId(master) {
+    const override = world.getDynamicProperty("pvp_weapon");
+    if (typeof override === "string" && override.length > 0) return override;
+    return master
+      ? inventoryConfig.levels[getLevel(master)].weapon
+      : inventoryConfig.defaultWeapon;
+  }
+
+  function setMainhandItem(entity, item, label) {
+    let equipped = false;
+    const errors = [];
+
+    try {
+      const equippable = entity.getComponent("minecraft:equippable");
+      if (!equippable) throw new Error("Equippable component is unavailable");
+      equippable.setEquipment(EquipmentSlot.Mainhand, item);
+      equipped = true;
+    } catch (error) {
+      errors.push(`equippable: ${error}`);
+    }
+
+    if (item) {
+      try {
+        const itemId = item.typeId.replace("minecraft:", "");
+        const result = entity.runCommand(
+          `replaceitem entity @s slot.weapon.mainhand 0 ${itemId} ${item.amount}`
+        );
+        if (result.successCount > 0) equipped = true;
+        else errors.push(`replaceitem: ${result.statusMessage}`);
+      } catch (error) {
+        errors.push(`replaceitem: ${error}`);
+      }
+    }
+
+    if (!equipped) console.warn(`[PVPbot] ${label}に失敗しました: ${errors.join("; ")}`);
+    return equipped;
+  }
+
+  function getMainhandMode(master, state) {
+    if (state.waterMlgPhase === "armed" || state.waterMlgPhase === "recovered") return "falling";
+    if (state.waterMlgPhase === "placed") return "fallingEmpty";
+    return state.healing ? "recovery" : "combat";
+  }
+
+  function updateMainhandMode(master, force = false) {
+    const state = getState(master);
+    const mode = getMainhandMode(master, state);
+    if (!force && state.mainhandMode === mode) return true;
+
+    let itemId;
+    let label;
+    switch (mode) {
+      case "falling":
+        itemId = inventoryConfig.waterBucket.fullItem;
+        label = "落下モードの水バケツ装備";
+        break;
+      case "fallingEmpty":
+        itemId = inventoryConfig.waterBucket.emptyItem;
+        label = "落下モードの空バケツ装備";
+        break;
+      case "recovery":
+        itemId = inventoryConfig.levels[getLevel(master)].healingItem.id;
+        label = "回復モードの食料装備";
+        break;
+      default:
+        itemId = getWeaponId(master);
+        label = "戦闘モードの武器装備";
+    }
+
+    const equipped = setMainhandItem(master, new ItemStack(itemId, 1), label);
+    if (equipped) state.mainhandMode = mode;
+    return equipped;
+  }
+
+  return { getWeaponId, setMainhandItem, getMainhandMode, updateMainhandMode };
+}
+function createOffhandController(shieldId) {
+  return function equipOffhandShield(master) {
+    try {
+      const item = shieldId.replace("minecraft:", "");
+      const result = master.runCommand(`replaceitem entity @s slot.weapon.offhand 0 ${item} 1`);
+      if (result.successCount < 1) {
+        console.warn(`[PVPbot] 盾の装備に失敗しました: ${item} (${result.statusMessage})`);
+      }
+    } catch (error) {
+      console.warn(`[PVPbot] 盾の装備に失敗しました: ${error}`);
+    }
+  };
+}
+
+
+function createInventorySetup({
+  inventoryConfig,
+  getLevel,
+  getState,
+  getBotInventory,
+  ensureWaterBucketInventory,
+}) {
+  return function initializeInventory(master) {
+    const healingItem = inventoryConfig.levels[getLevel(master)].healingItem;
+    const state = getState(master);
+    if (state.healingItemId !== healingItem.id || typeof state.healingItemAmount !== "number") {
+      state.healingItemId = healingItem.id;
+      state.healingItemAmount = healingItem.amount;
+    }
+    try {
+      const container = getBotInventory(master);
+      const item = container.getItem(0);
+      if (!item) {
+        container.setItem(0, new ItemStack(healingItem.id, state.healingItemAmount));
+      } else if (item.typeId !== healingItem.id) {
+        const validHealingItem = Object.values(inventoryConfig.levels).some(
+          (configured) => configured.healingItem.id === item.typeId
+        );
+        if (!validHealingItem) {
+          throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
+        }
+        container.setItem(0, new ItemStack(
+          healingItem.id,
+          Math.min(state.healingItemAmount, healingItem.amount)
+        ));
+      } else {
+        state.healingItemAmount = Math.min(item.amount, healingItem.amount);
+        if (item.amount !== state.healingItemAmount) {
+          item.amount = state.healingItemAmount;
+          container.setItem(0, item);
+        }
+      }
+    } catch (error) {
+      console.warn(`[PVPbot] 回復用インベントリを同期できません。内部の所持数で管理します: ${error}`);
+    }
+    try {
+      ensureWaterBucketInventory(master);
+    } catch (error) {
+      console.warn(`[PVPbot] 水バケツをインベントリに準備できません: ${error}`);
+    }
+    return true;
+  };
+}
+function createBlockBreaker({ isProtected, isEditProtected }) {
+  return function breakTowards(master, target, dim) {
+    const location = master.location;
+    const dx = target.location.x - location.x;
+    const dy = target.location.y - location.y;
+    const dz = target.location.z - location.z;
+    const length = Math.sqrt(dx * dx + dz * dz) || 1;
+    const nx = dx / length, nz = dz / length;
+
+    const candidates = [
+      { x: location.x + nx, y: location.y + 1, z: location.z + nz },
+      { x: location.x + nx, y: location.y, z: location.z + nz },
+    ];
+    if (dy > 1.5) candidates.push({ x: location.x, y: location.y + 2, z: location.z });
+    if (dy < -1.5) candidates.push({ x: location.x, y: location.y - 1, z: location.z });
+
+    let broken = 0;
+    for (const candidate of candidates) {
+      if (broken >= 3) break;
+      let block;
+      try { block = dim.getBlock(candidate); } catch { continue; }
+      if (!block || block.isAir || block.isLiquid) continue;
+      if (isProtected(block.typeId)) continue;
+      if (isEditProtected(dim, candidate.x, candidate.y, candidate.z)) continue;
+
+      const bx = block.x, by = block.y, bz = block.z;
+      try {
+        dim.runCommand(`setblock ${bx} ${by} ${bz} air destroy`);
+      } catch {
+        try { block.setType("minecraft:air"); } catch { continue; }
+      }
+      try { dim.playSound("dig.stone", { x: bx + 0.5, y: by + 0.5, z: bz + 0.5 }); } catch {}
+      broken++;
+    }
+  };
+}
+
+
+const RENDER_LIMITED = new Set([
+  "minecraft:trident",
+  "minecraft:shield",
+]);
+
+function registerCommands({
+  dimensions,
+  masterId,
+  targetTag,
+  inventoryConfig,
+  getTargetMode,
+  applyTargetMode,
+  equipWeapon,
+  getHeldItemId,
+}) {
+  system.afterEvents.scriptEventReceive.subscribe((ev) => {
+    if (ev.id !== "pvpbot:lava") return;
+    const message = (ev.message || "").trim().toLowerCase();
+    if (message !== "on" && message !== "off") {
+      world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:lava <on / off>");
+      world.sendMessage("§7  on = 溶岩からの脱出・橋渡しAIを有効 / off = 無効");
+      world.sendMessage(`§7  現在: ${isLavaOn() ? "有効" : "無効"}`);
+      world.sendMessage("§7  溶岩・炎のダメージは常に受け、防具で軽減されます");
+      return;
+    }
+    world.setDynamicProperty("pvp_lava", message === "on");
+    world.sendMessage(message === "on"
+      ? "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを有効にしました"
+      : "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを無効にしました");
+  });
+
+  // Usage: /scriptevent pvpbot:target tag or /scriptevent pvpbot:target all
+  system.afterEvents.scriptEventReceive.subscribe((ev) => {
+    if (ev.id !== "pvpbot:target") return;
+    const mode = (ev.message || "").trim().toLowerCase();
+
+    if (mode !== "tag" && mode !== "all") {
+      world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:target <all / tag>");
+      world.sendMessage("§7  all = 全プレイヤーを狙う(初期値)");
+      world.sendMessage("§7  tag = /tag <名前> add pvp_target を付けた人だけ狙う");
+      world.sendMessage(`§7  現在: ${getTargetMode()}`);
+      return;
+    }
+
+    world.setDynamicProperty("pvp_target_mode", mode);
+    for (const dimId of dimensions) {
+      try {
+        const dim = world.getDimension(dimId);
+        for (const entity of dim.getEntities({ type: masterId })) {
+          applyTargetMode(entity);
+        }
+      } catch {}
+    }
+
+    if (mode === "tag") {
+      world.sendMessage("§6[PVPbot] §epvp_target §bタグのあるプレイヤーだけ §eを狙うモードにしました");
+      let count = 0;
+      try {
+        for (const player of world.getPlayers()) {
+          if (player.hasTag(targetTag)) count++;
+        }
+      } catch {}
+      if (count === 0) {
+        world.sendMessage("§e  ⚠ タグの付いたプレイヤーがいません。このままだと誰も狙いません");
+        world.sendMessage("§7  /tag <プレイヤー名> add pvp_target で対象を指定してください");
+      } else {
+        world.sendMessage(`§7  現在の対象: ${count}人`);
+      }
+    } else {
+      world.sendMessage("§6[PVPbot] §e全プレイヤー §eを狙うモードに戻しました");
+    }
+  });
+
+  // Usage: /scriptevent pvpbot:weapon <item ID>
+  system.afterEvents.scriptEventReceive.subscribe((ev) => {
+    if (ev.id !== "pvpbot:weapon") return;
+    let id = (ev.message || "").trim().toLowerCase();
+    if (id.length === 0) {
+      world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:weapon <アイテムID>");
+      world.sendMessage("§7  例: diamond_sword / netherite_axe / iron_sword / stick");
+      world.sendMessage("§7  ※trident等の一部は装備されても見た目が表示されない場合あり");
+      const weaponOverride = world.getDynamicProperty("pvp_weapon");
+      world.sendMessage(typeof weaponOverride === "string" && weaponOverride.length > 0
+        ? `§7  現在の武器設定: ${weaponOverride}（全レベル共通）`
+        : `§7  現在の武器設定: レベル別（${Object.entries(inventoryConfig.levels)
+          .map(([level, settings]) => `${level}=${settings.weapon.replace("minecraft:", "")}`)
+          .join(", ")}）`);
+      return;
+    }
+    if (!id.includes(":")) id = "minecraft:" + id;
+    try {
+      new ItemStack(id, 1);
+    } catch {
+      world.sendMessage(`§c[PVPbot] アイテムID「${id}」が見つかりません`);
+      return;
+    }
+    world.setDynamicProperty("pvp_weapon", id);
+    if (RENDER_LIMITED.has(id)) {
+      world.sendMessage(`§e[PVPbot] 注意: §b${id.replace("minecraft:", "")} §eはマイクラの仕様で、Mobが手に持った見た目が表示されないことがあります`);
+      world.sendMessage(`§7  装備と攻撃力は反映されています(素手に見えても${id.replace("minecraft:", "")}の威力で殴ってきます)`);
+    }
+    let total = 0, done = 0;
+    for (const dimId of dimensions) {
+      try {
+        const dim = world.getDimension(dimId);
+        for (const master of dim.getEntities({ type: masterId })) {
+          total++;
+          if (equipWeapon(master)) {
+            done++;
+            dim.playSound("armor.equip_generic", master.location);
+          }
+        }
+      } catch {}
+    }
+    const short = id.replace("minecraft:", "");
+    if (total === 0) {
+      world.sendMessage(`§6[PVPbot] §e武器を §b${short} §eに設定しました(次にスポーンした個体から反映)`);
+    } else if (done === total) {
+      world.sendMessage(`§6[PVPbot] §e武器を §b${short} §eに変更しました(${done}体)`);
+    } else {
+      world.sendMessage(`§c[PVPbot] ${total}体中${done}体しか持ち替えられませんでした`);
+      world.sendMessage("§7  5秒ごとに自動で再適用されます。直らない場合は個体を出し直してください");
+    }
+    system.runTimeout(() => {
+      try {
+        for (const dimId of dimensions) {
+          const dim = world.getDimension(dimId);
+          for (const master of dim.getEntities({ type: masterId })) {
+            const held = getHeldItemId(master);
+            if (held !== null) {
+              world.sendMessage(`§7[確認] 現在の手持ち: ${held.replace("minecraft:", "")}`);
+              return;
+            }
+          }
+        }
+      } catch {}
+    }, 5);
+  });
+}
+
+
 //ワールド読み込み時に、スポーンセットアップと死亡ハンドラを登録
 world.afterEvents.playerSpawn.subscribe((ev) => {
   //初回スポーン時のみ通知を送信
@@ -877,23 +1513,6 @@ const LEVELS = {
 };
 const DEFAULT_LEVEL = 3;
 
-function broadcastMessage(message) {
-  let players;
-  try {
-    players = world.getPlayers();
-  } catch (error) {
-    console.error(`[PVPbot] プレイヤー一覧を取得できませんでした: ${error}`);
-    return;
-  }
-  for (const player of players) {
-    try {
-      player.sendMessage(message);
-    } catch (error) {
-      console.error(`[PVPbot] ${player.name}へのメッセージ送信に失敗しました: ${error}`);
-    }
-  }
-}
-
 // ターゲットモード: "all"=全プレイヤー / "tag"=pvp_targetタグのある人だけ
 const TARGET_TAG = "pvp_target";
 
@@ -917,82 +1536,6 @@ function getLevel(master) {
 }
 function cfg(master) { return LEVELS[getLevel(master)]; }
 
-// ---------- 武器システム ----------
-// 使い方: /scriptevent pvpbot:weapon diamond_sword
-function getWeaponId(master) {
-  const v = world.getDynamicProperty("pvp_weapon");
-  if (typeof v === "string" && v.length > 0) return v;
-  return master
-    ? INVENTORY_CONFIG.levels[getLevel(master)].weapon
-    : INVENTORY_CONFIG.defaultWeapon;
-}
-
-function setMainhandItem(entity, item, label) {
-  let equipped = false;
-  const errors = [];
-
-  try {
-    const equippable = entity.getComponent("minecraft:equippable");
-    if (!equippable) throw new Error("Equippable component is unavailable");
-    equippable.setEquipment(EquipmentSlot.Mainhand, item);
-    equipped = true;
-  } catch (error) {
-    errors.push(`equippable: ${error}`);
-  }
-
-  if (item) {
-    try {
-      const itemId = item.typeId.replace("minecraft:", "");
-      const result = entity.runCommand(
-        `replaceitem entity @s slot.weapon.mainhand 0 ${itemId} ${item.amount}`
-      );
-      if (result.successCount > 0) equipped = true;
-      else errors.push(`replaceitem: ${result.statusMessage}`);
-    } catch (error) {
-      errors.push(`replaceitem: ${error}`);
-    }
-  }
-
-  if (!equipped) console.warn(`[PVPbot] ${label}に失敗しました: ${errors.join("; ")}`);
-  return equipped;
-}
-
-function getMainhandMode(master, state) {
-  if (state.waterMlgPhase === "armed" || state.waterMlgPhase === "recovered") return "falling";
-  if (state.waterMlgPhase === "placed") return "fallingEmpty";
-  return state.healing ? "recovery" : "combat";
-}
-
-function updateMainhandMode(master, force = false) {
-  const state = getState(master);
-  const mode = getMainhandMode(master, state);
-  if (!force && state.mainhandMode === mode) return true;
-
-  let itemId;
-  let label;
-  switch (mode) {
-    case "falling":
-      itemId = INVENTORY_CONFIG.waterBucket.fullItem;
-      label = "落下モードの水バケツ装備";
-      break;
-    case "fallingEmpty":
-      itemId = INVENTORY_CONFIG.waterBucket.emptyItem;
-      label = "落下モードの空バケツ装備";
-      break;
-    case "recovery":
-      itemId = INVENTORY_CONFIG.levels[getLevel(master)].healingItem.id;
-      label = "回復モードの食料装備";
-      break;
-    default:
-      itemId = getWeaponId(master);
-      label = "戦闘モードの武器装備";
-  }
-
-  const equipped = setMainhandItem(master, new ItemStack(itemId, 1), label);
-  if (equipped) state.mainhandMode = mode;
-  return equipped;
-}
-
 function getBotInventory(master) {
   const inventory = master.getComponent("minecraft:inventory");
   if (!inventory || !inventory.container) {
@@ -1001,63 +1544,13 @@ function getBotInventory(master) {
   return inventory.container;
 }
 
-function initializeHealingInventory(master) {
-  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
-  const state = getState(master);
-  if (state.healingItemId !== healingItem.id || typeof state.healingItemAmount !== "number") {
-    state.healingItemId = healingItem.id;
-    state.healingItemAmount = healingItem.amount;
-  }
-  try {
-    const container = getBotInventory(master);
-    const item = container.getItem(0);
-    if (!item) {
-      container.setItem(0, new ItemStack(healingItem.id, state.healingItemAmount));
-    } else if (item.typeId !== healingItem.id) {
-      const validHealingItem = Object.values(INVENTORY_CONFIG.levels).some(
-        (configured) => configured.healingItem.id === item.typeId
-      );
-      if (!validHealingItem) {
-        throw new Error(`Unexpected item in healing inventory: ${item.typeId}`);
-      }
-      container.setItem(0, new ItemStack(healingItem.id, Math.min(state.healingItemAmount, healingItem.amount)));
-    } else {
-      state.healingItemAmount = Math.min(item.amount, healingItem.amount);
-      if (item.amount !== state.healingItemAmount) {
-        item.amount = state.healingItemAmount;
-        container.setItem(0, item);
-      }
-    }
-  } catch (error) {
-    console.warn(`[PVPbot] 回復用インベントリを同期できません。内部の所持数で管理します: ${error}`);
-  }
-  try {
-    ensureWaterBucketInventory(master);
-  } catch (error) {
-    console.warn(`[PVPbot] 水バケツをインベントリに準備できません: ${error}`);
-  }
-  return true;
-}
-
-function consumeHealingItem(master) {
-  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
-  const state = getState(master);
-  if (state.healingItemId !== healingItem.id || state.healingItemAmount < 1) return false;
-  state.healingItemAmount--;
-  try {
-    const container = getBotInventory(master);
-    const item = container.getItem(0);
-    if (item && item.typeId === healingItem.id) {
-      container.setItem(0, state.healingItemAmount > 0
-        ? new ItemStack(healingItem.id, state.healingItemAmount)
-        : undefined);
-    }
-  } catch (error) {
-    console.warn(`[PVPbot] 回復アイテム数をインベントリに反映できませんでした: ${error}`);
-  }
-  state.healingItemId = healingItem.id;
-  return true;
-}
+const initializeInventory = createInventorySetup({
+  inventoryConfig: INVENTORY_CONFIG,
+  getLevel,
+  getState,
+  getBotInventory,
+  ensureWaterBucketInventory,
+});
 
 const dropInventoryItems = createInventoryDropper({ getBotInventory, broadcastMessage });
 
@@ -1120,18 +1613,6 @@ function equipLevelArmor(master) {
   }
 }
 
-function equipOffhandShield(master) {
-  try {
-    const item = INVENTORY_CONFIG.shield.replace("minecraft:", "");
-    const result = master.runCommand(`replaceitem entity @s slot.weapon.offhand 0 ${item} 1`);
-    if (result.successCount < 1) {
-      console.warn(`[PVPbot] 盾の装備に失敗しました: ${item} (${result.statusMessage})`);
-    }
-  } catch (error) {
-    console.warn(`[PVPbot] 盾の装備に失敗しました: ${error}`);
-  }
-}
-
 // 実際に手に持っているものを読み取る(読めない環境では null)
 function getHeldItemId(master) {
   try {
@@ -1144,21 +1625,6 @@ function getHeldItemId(master) {
   return null;
 }
 
-
-// applyKnockback はバージョンによって引数の形が違うため、両方に対応させる
-// 旧: applyKnockback(dirX, dirZ, 水平, 垂直)
-// 新: applyKnockback({x, z}, 垂直)
-function knockback(entity, dx, dz, horizontal, vertical) {
-  try {
-    entity.applyKnockback(dx, dz, horizontal, vertical);
-    return true;
-  } catch {}
-  try {
-    entity.applyKnockback({ x: dx * horizontal, z: dz * horizontal }, vertical);
-    return true;
-  } catch {}
-  return false;
-}
 
 const fallBehavior = createFallBehavior({ knockback });
 
@@ -1179,6 +1645,14 @@ function getState(entity) {
   }
   return s;
 }
+
+const equipOffhandShield = createOffhandController(INVENTORY_CONFIG.shield);
+
+const { setMainhandItem, getMainhandMode, updateMainhandMode } = createMainhandController({
+  inventoryConfig: INVENTORY_CONFIG,
+  getLevel,
+  getState,
+});
 
 function dist(a, b) {
   const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
@@ -1212,98 +1686,18 @@ function applyLevelBuffs(master) {
   } catch {}
 }
 
-function tryStartHealing(master) {
-  const s = getState(master);
-  const c = cfg(master);
-  const hp = master.getComponent("minecraft:health");
-  if (!hp) return false;
-
-  const maxHealth = hp.effectiveMax;
-  const currentHealth = hp.currentValue;
-  if (!Number.isFinite(maxHealth) || maxHealth <= 0 || !Number.isFinite(currentHealth)) return false;
-  const healthRatio = currentHealth / maxHealth;
-  if (healthRatio > c.healThr) return false;
-  if (s.healStatusCd <= 0) {
-    s.healStatusCd = 40;
-    broadcastMessage(
-      `[PVPbot] 回復判定: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)} ` +
-      `(${Math.round(healthRatio * 100)}%)、しきい値 ${Math.round(c.healThr * 100)}%、` +
-      `食料 ${s.healingItemAmount}個、待機 ${Math.ceil(s.healCd / 20)}秒、回復中 ${s.healing}`
-    );
-  }
-  if (s.healing || s.healCd > 0 || s.healingItemAmount < 1) return false;
-
-  if (!consumeHealingItem(master)) {
-    s.healCd = c.healCd;
-    broadcastMessage("[PVPbot] 回復を開始できません: 食料の残数がありません");
-    return false;
-  }
-
-  const healingItem = INVENTORY_CONFIG.levels[getLevel(master)].healingItem;
-  s.healing = true;
-  const mainhandMode = getMainhandMode(master, s);
-  const switchedToModeItem = updateMainhandMode(master, true);
-
-  const mainhandStatus = !switchedToModeItem
-    ? "手持ちの切り替えに失敗しました"
-    : mainhandMode === "falling"
-      ? "落下中のため水バケツを保持します"
-      : `${healingItem.id.replace("minecraft:", "")}（残り${s.healingItemAmount}個）`;
-  broadcastMessage(`§e[PVPbot] 回復開始: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)}、${mainhandStatus}`);
-
-  s.healCd = c.healCd;
-  try {
-    master.addEffect("slowness", 30, { amplifier: 5, showParticles: false });
-    master.addEffect("weakness", 30, { amplifier: 5, showParticles: false });
-  } catch (error) {
-    console.warn(`[PVPbot] 回復中の効果を付与できませんでした: ${error}`);
-  }
-  for (let i = 0; i < 3; i++) {
-    system.runTimeout(() => {
-      try {
-        master.dimension.playSound("random.eat", master.location, { volume: 1.0 });
-      } catch {}
-    }, i * 10);
-  }
-  
-  // 1.5秒後の回復処理部分を以下に丸ごと差し替え
-  system.runTimeout(() => {
-    try {
-      // 💡 超重要：1.5秒経った今、ボットが本当に生きているか（HPが0より大きいか）を厳格にチェック
-      if (!master.isValid) return;
-      const health = master.getComponent("minecraft:health");
-      if (!health || health.currentValue <= 0) return; // すでに死んでいたら回復処理を完全に中止する
-
-      const before = health.currentValue;
-      const targetHealth = Math.min(health.effectiveMax, before + c.healAmt);
-      
-      // 念のため、代入する値が正常値であることを確認
-      if (Number.isFinite(targetHealth) && targetHealth > 0) {
-        health.setCurrentValue(targetHealth);
-        broadcastMessage(`§a[PVPbot] 回復しました（体力 ${Math.round(before)} → ${Math.round(health.currentValue)}）`);
-      }
-
-      if (healingItem.id === "minecraft:golden_apple") {
-        master.addEffect("regeneration", 100, { amplifier: 1, showParticles: true });
-        master.addEffect("absorption", 600, { amplifier: 0, showParticles: true });
-      }
-      master.dimension.playSound("random.burp", master.location);
-    } catch (error) {
-      console.warn(`[PVPbot] 回復処理に失敗しました: ${error}`);
-    } finally {
-      // 💡 死んでいても実行できるように、isValidチェックを挟んで武器を戻す
-      s.healing = false;
-      try {
-        if (master.isValid && master.getComponent("minecraft:health")?.currentValue > 0) {
-          equipWeapon(master);
-        }
-      } catch (error) {
-        console.warn(`[PVPbot] 回復後に武器を戻せませんでした: ${error}`);
-      }
-    }
-  }, 30);
-  return true;
-}
+const tryStartHealing = createHealingHandler({
+  inventoryConfig: INVENTORY_CONFIG,
+  getLevel,
+  getState,
+  getBotInventory,
+  cfg,
+  broadcastMessage,
+  getHealingItem: (master) => INVENTORY_CONFIG.levels[getLevel(master)].healingItem,
+  getMainhandMode,
+  updateMainhandMode,
+  equipWeapon,
+});
 
 // ---------- メインAIループ (毎tick) ----------
 system.runInterval(() => {
@@ -1357,7 +1751,7 @@ function aiTick(master, dim, dimId) {
   if (s.healingInventoryRetry > 0) s.healingInventoryRetry--;
   if (s.healStatusCd > 0) s.healStatusCd--;
   if (!s.healingInventoryInitialized && s.healingInventoryRetry <= 0) {
-    s.healingInventoryInitialized = initializeHealingInventory(master);
+    s.healingInventoryInitialized = initializeInventory(master);
     s.healingInventoryRetry = 100;
   }
 
@@ -1406,13 +1800,13 @@ function aiTick(master, dim, dimId) {
   const dyUp = target.location.y - loc.y;
 
   // 積み上げ中は他の移動処理を行わない(横に引っ張られて落ちるのを防ぐ)
-  if (pillarTick(master, target, dim, s)) return;
+  if (pillarBehavior.pillarTick(master, target, dim, s)) return;
 
   // 相手が2ブロック以上高く、真下付近まで来ていたら積み始める
   if (dyUp >= 2.0 && hdist0 <= 3.5 && master.isOnGround && s.pillarCd <= 0) {
-    startPillar(master, s);
+    pillarBehavior.startPillar(master, s);
     s.pillarCd = 20;
-    if (pillarTick(master, target, dim, s)) return;
+    if (pillarBehavior.pillarTick(master, target, dim, s)) return;
   }
 
   // ---- 相手が下にいる → 崖から飛び降りる ----
@@ -1476,180 +1870,12 @@ function aiTick(master, dim, dimId) {
 //  ジャンプ → 空中で足元に設置 → 着地 → 再びジャンプ を繰り返して
 //  相手の高さまで一気に登る
 // ============================================================
-const PILLAR_BLOCK = "minecraft:cobblestone";
 const lavaBehavior = createLavaBehavior({
   knockback,
   isEditProtected,
   pillarBlock: PILLAR_BLOCK,
 });
-const PILLAR_MAX = 40;      // 1回で積める最大段数
-const PILLAR_RANGE = 6;     // 相手がこれ以上横に離れたら中断
-const PILLAR_STEP = 0.22;   // 1tickあたりの上昇量(ブロック)
-const PILLAR_CLEAR = 1.08;  // 足がこの高さまで上がったらブロックを置く
-const PILLAR_SETTLE = 2;    // 設置後に足場へ乗るまでのtick
-
-function startPillar(master, s) {
-  const loc = master.location;
-  // deny保護範囲では足場ブロックを置かない(柱は同じ列に積むため、開始時の1回の判定で全段カバーできる)
-  if (isEditProtected(master.dimension, loc.x, loc.y, loc.z)) return;
-  s.pillar = {
-    active: true,
-    bx: Math.floor(loc.x),   // 柱を立てる列(X)
-    bz: Math.floor(loc.z),   // 柱を立てる列(Z)
-    placeY: null,            // 設置先。ジャンプのたびに実測から計算し直す
-    phase: "jump",
-    t: 0,
-    placed: 0,
-    fails: 0,
-  };
-}
-
-function stopPillar(s) {
-  if (s.pillar) s.pillar.active = false;
-}
-
-// 積み上げ中は true を返す(この間は通常の移動処理をスキップする)
-//
-// 【設計方針】
-// applyImpulse による物理ジャンプは、環境によって跳ぶ高さが大きく変わるうえ、
-// 空中にいる間に再度加算されると青天井に打ち上がってしまう。
-// そのため上下移動はスクリプトで座標を直接制御し、常に一定の動きにする。
-function pillarTick(master, target, dim, s) {
-  const p = s.pillar;
-  if (!p || !p.active) return false;
-
-  const loc = master.location;
-  const hdx = target.location.x - loc.x;
-  const hdz = target.location.z - loc.z;
-  const hdist = Math.sqrt(hdx * hdx + hdz * hdz);
-  const dy = target.location.y - loc.y;
-
-  // ---- 中断条件 ----
-  if (dy < 1.0 || p.placed >= PILLAR_MAX || hdist > PILLAR_RANGE || p.fails > 3) {
-    stopPillar(s);
-    return false;
-  }
-
-  p.t++;
-  let desiredY = loc.y;   // 既定は現在の高さを維持
-
-  // ---- 段取り: 設置先を実測から決める ----
-  if (p.phase === "jump") {
-    let py = Math.floor(loc.y + 0.02);
-    try {
-      const here = dim.getBlock({ x: p.bx, y: py, z: p.bz });
-      // ハーフブロックなどの上に立っている場合は1つ上が設置先
-      if (here && !here.isAir && !here.isLiquid) py += 1;
-    } catch {}
-
-    // 設置先が既に埋まっているなら積めない
-    try {
-      const tgt = dim.getBlock({ x: p.bx, y: py, z: p.bz });
-      if (tgt && !tgt.isAir && !tgt.isLiquid) { stopPillar(s); return false; }
-    } catch {}
-
-    // 頭がぶつかる位置を空ける(deny保護は同じ列のため startPillar 時の判定でカバー済み)
-    try {
-      const head = dim.getBlock({ x: p.bx, y: py + 2, z: p.bz });
-      if (head && !head.isAir && !head.isLiquid) {
-        if (isProtected(head.typeId)) { stopPillar(s); return false; }
-        dim.runCommand(`setblock ${p.bx} ${py + 2} ${p.bz} air destroy`);
-      }
-    } catch {}
-
-    p.placeY = py;
-    p.phase = "rise";
-    p.t = 0;
-  }
-
-  // ---- 上昇: 一定速度で持ち上げ、足が抜けたらブロックを置く ----
-  else if (p.phase === "rise") {
-    const goal = p.placeY + PILLAR_CLEAR;
-    desiredY = Math.min(loc.y + PILLAR_STEP, goal);
-
-    if (desiredY >= goal - 0.001) {
-      desiredY = goal;
-      let placed = false;
-      try {
-        const b = dim.getBlock({ x: p.bx, y: p.placeY, z: p.bz });
-        if (b && (b.isAir || b.isLiquid)) {
-          b.setType(PILLAR_BLOCK);
-          placed = true;
-          dim.playSound("use.stone",
-            { x: p.bx + 0.5, y: p.placeY + 0.5, z: p.bz + 0.5 });
-          dim.spawnParticle("minecraft:crop_growth_emitter",
-            { x: p.bx + 0.5, y: p.placeY + 1.1, z: p.bz + 0.5 });
-        }
-      } catch {}
-
-      if (placed) { p.placed++; p.fails = 0; } else { p.fails++; }
-      p.phase = "settle";
-      p.t = 0;
-    } else if (p.t > 20) {
-      // 何らかの理由で上がれない場合は測り直してやり直す
-      p.fails++;
-      p.phase = "jump";
-      p.t = 0;
-    }
-  }
-
-  // ---- 着地: 置いたブロックの上に乗る ----
-  else if (p.phase === "settle") {
-    desiredY = p.placeY + 1.0;
-    if (p.t >= PILLAR_SETTLE) {
-      p.phase = "jump";
-      p.t = 0;
-    }
-  }
-
-  // ---- 柱の中心と目標の高さへ移動 ----
-  // x/z を固定することで、追跡AIに引っ張られて柱から落ちるのを防ぐ
-  try {
-    master.teleport(
-      { x: p.bx + 0.5, y: desiredY, z: p.bz + 0.5 },
-      { dimension: dim, keepVelocity: false }
-    );
-  } catch {
-    stopPillar(s);
-    return false;
-  }
-
-  return true;
-}
-
-function breakTowards(master, target, dim) {
-  const loc = master.location;
-  const dx = target.location.x - loc.x;
-  const dy = target.location.y - loc.y;
-  const dz = target.location.z - loc.z;
-  const len = Math.sqrt(dx * dx + dz * dz) || 1;
-  const nx = dx / len, nz = dz / len;
-
-  const candidates = [
-    { x: loc.x + nx, y: loc.y + 1, z: loc.z + nz },
-    { x: loc.x + nx, y: loc.y, z: loc.z + nz },
-  ];
-  if (dy > 1.5) candidates.push({ x: loc.x, y: loc.y + 2, z: loc.z });
-  if (dy < -1.5) candidates.push({ x: loc.x, y: loc.y - 1, z: loc.z });
-
-  let broken = 0;
-  for (const cnd of candidates) {
-    if (broken >= 3) break;
-    let block;
-    try { block = dim.getBlock(cnd); } catch { continue; }
-    if (!block || block.isAir || block.isLiquid) continue;
-    if (isProtected(block.typeId)) continue;
-    if (isEditProtected(dim, cnd.x, cnd.y, cnd.z)) continue;  // deny保護範囲は壊さない
-    const bx = block.x, by = block.y, bz = block.z;
-    try {
-      dim.runCommand(`setblock ${bx} ${by} ${bz} air destroy`);
-    } catch {
-      try { block.setType("minecraft:air"); } catch { continue; }
-    }
-    try { dim.playSound("dig.stone", { x: bx + 0.5, y: by + 0.5, z: bz + 0.5 }); } catch {}
-    broken++;
-  }
-}
+const breakTowards = createBlockBreaker({ isProtected, isEditProtected });
 
 // 存在しなくなったエンティティの状態を定期的に破棄する(メモリリーク対策)
 system.runInterval(() => {
@@ -1669,133 +1895,16 @@ system.runInterval(() => {
 
 // 手に持たせても見た目が表示されないことがあるアイテム(ゲーム本体の描画仕様)。
 // スロットへの装備と攻撃力は正しく反映されるが、モデルが描画されない。
-const RENDER_LIMITED = new Set([
-  "minecraft:trident",
-  "minecraft:shield",
-]);
-
-
-
-
-registerLavaCommand();
-
-// ---------- コマンドによるターゲット選択 ----------
-// 使い方: /scriptevent pvpbot:target tag  /  /scriptevent pvpbot:target all
-// タグの付け方: /tag <プレイヤー名> add pvp_target
-system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvpbot:target") return;
-  const m = (ev.message || "").trim().toLowerCase();
-
-  if (m !== "tag" && m !== "all") {
-    world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:target <all / tag>");
-    world.sendMessage("§7  all = 全プレイヤーを狙う(初期値)");
-    world.sendMessage("§7  tag = /tag <名前> add pvp_target を付けた人だけ狙う");
-    world.sendMessage(`§7  現在: ${getTargetMode()}`);
-    return;
-  }
-
-  world.setDynamicProperty("pvp_target_mode", m);
-  // 既存の個体に即反映
-  for (const dimId of DIMENSIONS) {
-    try {
-      const dim = world.getDimension(dimId);
-      for (const e of dim.getEntities({ type: MASTER_ID })) {
-        applyTargetMode(e);
-      }
-    } catch {}
-  }
-
-  if (m === "tag") {
-    world.sendMessage("§6[PVPbot] §epvp_target §bタグのあるプレイヤーだけ §eを狙うモードにしました");
-    // タグ付きプレイヤーがいるか確認して案内する
-    let count = 0;
-    try {
-      for (const p of world.getPlayers()) {
-        if (p.hasTag(TARGET_TAG)) count++;
-      }
-    } catch {}
-    if (count === 0) {
-      world.sendMessage("§e  ⚠ タグの付いたプレイヤーがいません。このままだと誰も狙いません");
-      world.sendMessage("§7  /tag <プレイヤー名> add pvp_target で対象を指定してください");
-    } else {
-      world.sendMessage(`§7  現在の対象: ${count}人`);
-    }
-  } else {
-    world.sendMessage("§6[PVPbot] §e全プレイヤー §eを狙うモードに戻しました");
-  }
+registerCommands({
+  dimensions: DIMENSIONS,
+  masterId: MASTER_ID,
+  targetTag: TARGET_TAG,
+  inventoryConfig: INVENTORY_CONFIG,
+  getTargetMode,
+  applyTargetMode,
+  equipWeapon,
+  getHeldItemId,
 });
-
-// ---------- コマンドによる武器変更 ----------
-// 使い方: /scriptevent pvpbot:weapon <アイテムID>  例: diamond_sword, netherite_axe, trident
-system.afterEvents.scriptEventReceive.subscribe((ev) => {
-  if (ev.id !== "pvpbot:weapon") return;
-  let id = (ev.message || "").trim().toLowerCase();
-  if (id.length === 0) {
-    world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:weapon <アイテムID>");
-    world.sendMessage("§7  例: diamond_sword / netherite_axe / iron_sword / stick");
-    world.sendMessage("§7  ※trident等の一部は装備されても見た目が表示されない場合あり");
-    const weaponOverride = world.getDynamicProperty("pvp_weapon");
-    world.sendMessage(typeof weaponOverride === "string" && weaponOverride.length > 0
-      ? `§7  現在の武器設定: ${weaponOverride}（全レベル共通）`
-      : `§7  現在の武器設定: レベル別（${Object.entries(INVENTORY_CONFIG.levels)
-        .map(([level, settings]) => `${level}=${settings.weapon.replace("minecraft:", "")}`)
-        .join(", ")}）`);
-    return;
-  }
-  if (!id.includes(":")) id = "minecraft:" + id;
-  // アイテムIDが正しいか検証
-  try {
-    new ItemStack(id, 1);
-  } catch {
-    world.sendMessage(`§c[PVPbot] アイテムID「${id}」が見つかりません`);
-    return;
-  }
-  world.setDynamicProperty("pvp_weapon", id);
-  // 描画されないアイテムは、先にその旨を正直に伝える
-  if (RENDER_LIMITED.has(id)) {
-    world.sendMessage(`§e[PVPbot] 注意: §b${id.replace("minecraft:", "")} §eはマイクラの仕様で、Mobが手に持った見た目が表示されないことがあります`);
-    world.sendMessage(`§7  装備と攻撃力は反映されています(素手に見えても${id.replace("minecraft:", "")}の威力で殴ってきます)`);
-  }
-  // 先に持ち替えを実行し、実際の結果を確認してから報告する
-  let total = 0, done = 0;
-  for (const dimId of DIMENSIONS) {
-    try {
-      const dim = world.getDimension(dimId);
-      for (const m of dim.getEntities({ type: MASTER_ID })) {
-        total++;
-        if (equipWeapon(m)) {
-          done++;
-          dim.playSound("armor.equip_generic", m.location);
-        }
-      }
-    } catch {}
-  }
-  const short = id.replace("minecraft:", "");
-  if (total === 0) {
-    world.sendMessage(`§6[PVPbot] §e武器を §b${short} §eに設定しました(次にスポーンした個体から反映)`);
-  } else if (done === total) {
-    world.sendMessage(`§6[PVPbot] §e武器を §b${short} §eに変更しました(${done}体)`);
-  } else {
-    world.sendMessage(`§c[PVPbot] ${total}体中${done}体しか持ち替えられませんでした`);
-    world.sendMessage(`§7  5秒ごとに自動で再適用されます。直らない場合は個体を出し直してください`);
-  }
-  // 実際の手持ちを読み取れる環境なら、確認結果も表示する
-  system.runTimeout(() => {
-    try {
-      for (const dimId of DIMENSIONS) {
-        const dim = world.getDimension(dimId);
-        for (const m of dim.getEntities({ type: MASTER_ID })) {
-          const held = getHeldItemId(m);
-          if (held !== null) {
-            world.sendMessage(`§7[確認] 現在の手持ち: ${held.replace("minecraft:", "")}`);
-            return;
-          }
-        }
-      }
-    } catch {}
-  }, 5);
-});
-
 
 registerSpawnSetup({
   masterId: MASTER_ID,
@@ -1809,7 +1918,7 @@ registerSpawnSetup({
   updateName,
   applyLevelBuffs,
   applyTargetMode,
-  initializeHealingInventory,
+  initializeInventory,
 });
 
 // Level-specific custom spawn eggs set the entity's level before its normal initialization.

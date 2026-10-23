@@ -12,7 +12,7 @@ export function registerSpawnSetup({
   updateName,
   applyLevelBuffs,
   applyTargetMode,
-  initializeHealingInventory,
+  initializeInventory,
 }) {
   if (world.afterEvents.entityLoad) {
     world.afterEvents.entityLoad.subscribe((ev) => {
@@ -28,7 +28,7 @@ export function registerSpawnSetup({
           applyLevelBuffs(entity);
           applyTargetMode(entity);
         } catch {}
-        initializeHealingInventory(entity);
+        initializeInventory(entity);
       }, 10);
     });
   }
@@ -47,7 +47,7 @@ export function registerSpawnSetup({
       system.runTimeout(() => {
         try {
           applyLevelBuffs(entity);
-          initializeHealingInventory(entity);
+          initializeInventory(entity);
           equipWeapon(entity);
           equipLevelArmor(entity);
           equipOffhandShield(entity);
