@@ -43,33 +43,16 @@ export function createHealingHandler({
     if (!Number.isFinite(maxHealth) || maxHealth <= 0 || !Number.isFinite(currentHealth)) return false;
     const healthRatio = currentHealth / maxHealth;
     if (healthRatio > config.healThr) return false;
-    if (state.healStatusCd <= 0) {
-      state.healStatusCd = 40;
-      broadcastMessage(
-        `[PVPbot] 回復判定: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)} ` +
-        `(${Math.round(healthRatio * 100)}%)、しきい値 ${Math.round(config.healThr * 100)}%、` +
-        `食料 ${state.healingItemAmount}個、待機 ${Math.ceil(state.healCd / 20)}秒、回復中 ${state.healing}`
-      );
-    }
+
     if (state.healing || state.healCd > 0 || state.healingItemAmount < 1) return false;
 
     if (!consumeHealingItem(master)) {
       state.healCd = config.healCd;
-      broadcastMessage("[PVPbot] 回復を開始できません: 食料の残数がありません");
       return false;
     }
 
     const healingItem = getHealingItem(master);
     state.healing = true;
-    const mainhandMode = getMainhandMode(master, state);
-    const switchedToModeItem = updateMainhandMode(master, true);
-
-    const mainhandStatus = !switchedToModeItem
-      ? "手持ちの切り替えに失敗しました"
-      : mainhandMode === "falling"
-        ? "落下中のため水バケツを保持します"
-        : `${healingItem.id.replace("minecraft:", "")}（残り${state.healingItemAmount}個）`;
-    broadcastMessage(`§e[PVPbot] 回復開始: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)}、${mainhandStatus}`);
 
     state.healCd = config.healCd;
     try {
@@ -96,9 +79,6 @@ export function createHealingHandler({
         const targetHealth = Math.min(currentHealthComponent.effectiveMax, before + config.healAmt);
         if (Number.isFinite(targetHealth) && targetHealth > 0) {
           currentHealthComponent.setCurrentValue(targetHealth);
-          broadcastMessage(
-            `§a[PVPbot] 回復しました（体力 ${Math.round(before)} → ${Math.round(currentHealthComponent.currentValue)}）`
-          );
         }
 
         if (healingItem.id === "minecraft:golden_apple") {

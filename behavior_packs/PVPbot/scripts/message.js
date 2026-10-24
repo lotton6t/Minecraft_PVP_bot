@@ -12,17 +12,23 @@ export const MSG_PREFIX = "[PVPbot]";
 // 全プレイヤーにメッセージを送信する関数
 export function broadcastMessage(message) {
   let players;
-  try {
-    players = world.getPlayers();
-  } catch (error) {
-    console.error(`[PVPbot] プレイヤー一覧を取得できませんでした: ${error}`);
+  try
+  {
+    players = world.getPlayers(); // 全プレイヤーを取得
+    console.log(`${MSG_PREFIX} 全プレイヤーにメッセージを送信`);
+  } catch (error)
+  {
+    console.error(`${MSG_PREFIX} プレイヤー一覧を取得できませんでした: ${error}`);
     return;
   }
   for (const player of players) {
-    try {
-      player.sendMessage(message);
-    } catch (error) {
-      console.error(`[PVPbot] ${player.name}へのメッセージ送信に失敗しました: ${error}`);
+    try
+    {
+      player.sendMessage(message);  // プレイヤーにメッセージを送信
+      console.log(`${MSG_PREFIX} ${player.name} へメッセージ送信: ${message}`);
+    } catch (error)
+    {
+      console.error(`${MSG_PREFIX}  ${player.name}へのメッセージ送信に失敗しました: ${error}`);
     }
   }
 }
@@ -36,26 +42,19 @@ function getLangKey(player) {
     // 言語情報が取得できなかった場合
     if (!lang)
     {
-      // デバッグモードの場合
-      if(IS_DEBUG)
-      {
-        console.warn(`${MSG_PREFIX} 言語取得できないため日本語に設定します: ${player.name}.`);
-      }
+      console.warn(`${MSG_PREFIX} 言語取得できないため日本語に設定します: ${player.lang}.`);
       return "JPN";
     }
 
     // 文字列をすべて小文字に変換（例: "ja_JP" も "ja-JP" も "ja_jp" に統一される）
     const lowerLang = lang.toLowerCase();
 
+    console.log(`${MSG_PREFIX} ${player.name} の言語: ${lowerLang}`);
     return lowerLang.includes("ja") ? "JPN" : "ENG";
   }
   catch
   {
-    // デバッグモードの場合
-    if(IS_DEBUG)
-    {
-      console.warn(`${MSG_PREFIX} 例外発生のため日本語に設定します: ${player.name}.`);
-    }
+    console.warn(`${MSG_PREFIX} 例外発生のため日本語に設定します: ${player.lang}.`);
     return "JPN"; // 万が一エラーが起きても日本語をデフォルトにする
   }
 }
@@ -70,7 +69,7 @@ export function broadcastChat(key, ...args) {
     if (!item)
     {
       // 警告を出して処理を中断
-      console.warn(`${MSG_PREFIX} Message key "${key}" not found.`);
+      console.warn(`${MSG_PREFIX} メッセージがありません: ${key}`);
       return;
     }
 
@@ -83,11 +82,12 @@ export function broadcastChat(key, ...args) {
       // 中身が関数（動的テキスト）か、ただの文字列かで処理を分ける
       const text = typeof content === "function" ? content(...args) : content;
       player.sendMessage(text);
+      console.log(`${MSG_PREFIX} ${player.name} へメッセージ送信: ${text}`);
     }
   }
   catch (error)
   {
-    console.error(`${MSG_PREFIX} Failed to broadcast message: ${error}`);
+    console.error(`${MSG_PREFIX} メッセージの配信に失敗しました: ${error}`);
   }
 }
 

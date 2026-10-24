@@ -16,12 +16,14 @@ export function createInventoryDropper({ getBotInventory, broadcastMessage }) {
     const location = { ...master.location, y: master.location.y + 0.25 };
     system.runTimeout(() => {
       for (const item of items) {
-        try {
+        try
+        {
           dimension.spawnItem(item, location);
           console.info(`[PVPbot] インベントリアイテムをドロップしました: ${item.typeId} x${item.amount}`);
-        } catch (error) {
+        }
+        catch (error)
+        {
           console.error(`[PVPbot] インベントリアイテムをドロップできませんでした (${item.typeId} x${item.amount}): ${error}`);
-          broadcastMessage(`§c[PVPbot] ${item.typeId.replace("minecraft:", "")} のドロップに失敗しました: ${error}`);
         }
       }
     }, 1);

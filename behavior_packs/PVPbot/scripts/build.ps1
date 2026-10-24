@@ -32,6 +32,7 @@ $offhandImportLine = 'import { createOffhandController } from "./offhand.js";'
 $inventorySetupImportLine = 'import { createInventorySetup } from "./inventory_setup.js";'
 $blockBreakerImportLine = 'import { createBlockBreaker } from "./break_towareds.js";'
 $messageResourceImportLine = 'import { MSG_DATA } from "./message_resource.js";'
+$deathCauseImportLine = 'import { MSG_DEATH_CAUSE } from "./message_resource.js";'
 $waterImportLine = 'import { ensureWaterBucketInventory, tickWaterBucket } from "./water_bucket.js";'
 $blockProtectionImportLine = 'import { isProtected } from "./block_protection.js";'
 $spawnSetupImportLine = 'import { registerSpawnSetup } from "./spawn_setup.js";'
@@ -215,8 +216,16 @@ if (-not $messageContent.Contains($messageResourceImportLine)) {
 if (-not $messageResource.StartsWith("export const MSG_DATA =")) {
   throw "Unexpected message resource format in $messageResourcePath"
 }
+if (-not $deathHandler.Contains($deathCauseImportLine)) {
+  throw "Expected death cause import was not found in $deathHandlerPath"
+}
+if (-not $messageResource.Contains("export const MSG_DEATH_CAUSE =")) {
+  throw "Unexpected message resource format in $messageResourcePath"
+}
 $messageResource = $messageResource.Replace("export const MSG_DATA =", "const MSG_DATA =")
+$messageResource = $messageResource.Replace("export const MSG_DEATH_CAUSE =", "const MSG_DEATH_CAUSE =")
 $messageContent = $messageContent.Replace($messageResourceImportLine, $messageResource)
+$messageContent = $messageContent.Replace($deathCauseImportLine, $messageResource)
 $messageContent = $messageContent.Replace('import { world } from "@minecraft/server";', "")
 $messageContent = $messageContent.Replace("export const ", "const ")
 $messageContent = $messageContent.Replace("export function ", "function ")
@@ -253,7 +262,23 @@ $blockBreaker = $blockBreaker.Replace("export function ", "function ") + [Enviro
 $command = $command.Replace('import { world, system, ItemStack } from "@minecraft/server";', "")
 $command = $command.Replace("export function ", "function ") + [Environment]::NewLine
 $bundle = $source
+# 各子ファイルのクレンジング（ここを徹底強化）
+# 子ファイル（message.jsやdeath_handler.jsなど）の中に残っている、message_resource 関連のインポート行を
+# スペースの数や改行コードに関係なく、正規表現で「根こそぎ完全に消去」します。
+$messageContent = $messageContent -replace 'import\s*\{\s*MSG_DATA.*?\}\s*from\s*"\./message_resource\.js";\r?\n?', ""
+$deathHandler   = $deathHandler   -replace 'import\s*\{\s*MSG_DEATH_CAUSE.*?\}\s*from\s*"\./message_resource\.js";\r?\n?', ""
+
+# 本体（main.source.js）へ各ファイルをガッチャンコしていく
+# message.js の中身（MSG_DATAが埋め込まれた状態）を結合
 $bundle = $bundle -replace 'import\s*\{\s*MSG.*?\}\s*from\s*"\./message\.js";\r?\n?', $messageContent
+
+# inventory_config.js を結合
+$bundle = $bundle -replace 'import\s*\{\s*INVENTORY_CONFIG.*?\}\s*from\s*"\./inventory_config\.js";\r?\n?', $config
+
+# message_resource.js の生データ（MSG_DATA と MSG_DEATH_CAUSE）を main の中に安全にインライン展開
+$bundle = $bundle -replace 'import\s*\{\s*MSG_DATA.*?\}\s*from\s*"\./message_resource\.js";\r?\n?', $messageResource
+$bundle = $bundle -replace 'import\s*\{\s*MSG_DEATH_CAUSE.*?\}\s*from\s*"\./message_resource\.js";\r?\n?', ""
+
 $bundle = $bundle -replace 'import\s*\{\s*INVENTORY_CONFIG.*?\}\s*from\s*"\./inventory_config\.js";\r?\n?', $config
 $bundle = $bundle -replace 'import\s*\{\s*ensureWaterBucketInventory.*?\}\s*from\s*"\./water_bucket\.js";\r?\n?', $waterBucket
 $bundle = $bundle -replace 'import\s*\{\s*isProtected.*?\}\s*from\s*"\./block_protection\.js";\r?\n?', $blockProtection

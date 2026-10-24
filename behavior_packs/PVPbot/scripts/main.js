@@ -15,29 +15,124 @@ const MSG_DATA = {
     JPN: "起動通知を送信できませんでした",
     ENG: "Failed to send startup notification."
   },
-  HEAL_FAIL_EFFECT: {
-    JPN: "回復中の効果を付与できませんでした",
-    ENG: "Failed to apply effects during healing."
-  },
-  DEATH_DETECT: {
-    JPN: "§e[PVPbot] Botの死亡イベントを検知しました",
-    ENG: "§e[PVPbot] Detected Bot death event."
-  },
-  DEATH_FAIL_DROP: {
-    JPN: "§c[PVPbot] インベントリアイテムのドロップ準備に失敗しました",
-    ENG: "§c[PVPbot] Failed to prepare inventory item drops."
-  },
   SPAWN_MESSAGE: {
-    JPN: (levelName) => `§ePVPbot（${levelName}）がゲームに入室しました`,
-    ENG: (levelName) => `§ePVPbot (${levelName}) has joined the game.`
+    JPN: (levelName) => `§e${levelName}がゲームに入室しました`,
+    ENG: (levelName) => `§e${levelName} has joined the game.`
   },
-  EXIT_MESSAGE_DROP: {
-    JPN: (name, count) => `§e${name}がゲームを退出しました（インベントリのアイテム ${count} 個をドロップ）`,
-    ENG: (name, count) => `§e${name} left the game (Dropped ${count} inventory items)`
+  EXIT_MESSAGE: {
+    JPN: (levelName) => `§e${levelName}がゲームを退出しました`,
+    ENG: (levelName) => `§e${levelName} left the game.`
   },
-  EXIT_MESSAGE_NONE: {
-    JPN: (name) => `§e${name}がゲームを退出しました（ドロップできるインベントリアイテムはありません）`,
-    ENG: (name) => `§e${name} left the game (No inventory items to drop)`
+  PLAYER_KILL_MESSAGE: {
+    JPN: (levelName, killerName) => `§f${levelName}は${killerName}に倒された`,
+    ENG: (levelName, killerName) => `§f${levelName} was killed by ${killerName}.`
+  },
+  BOT_KILL_MESSAGE: {
+    JPN: (levelName, killerName) => `§f${levelName}は${killerName}に倒された`,
+    ENG: (levelName, killerName) => `§f${levelName} was killed by ${killerName}.`
+  },
+  DEATH_MESSAGE: {
+    JPN: (levelName, cause) => `§f${levelName}は${cause || "不明な原因"}で倒された`,
+    ENG: (levelName, cause) => `§f${levelName} was killed by ${cause || "an unknown cause"}.`
+  }
+};
+
+const MSG_DEATH_CAUSE = {
+  anvil: {
+    JPN: "金床に押しつぶされた",
+    ENG: "was squashed by a falling anvil"
+  },
+  blockExplosion: {
+    JPN: "爆発で倒された",
+    ENG: "was blown up"
+  },
+  drowning: {
+    JPN: "溺死した",
+    ENG: "drowned"
+  },
+  entityExplosion: {
+    JPN: "爆発で倒された",
+    ENG: "was blown up"
+  },
+  fall: {
+    JPN: "落下死した",
+    ENG: "fell from a high place"
+  },
+  fallingBlock: {
+    JPN: "落下ブロックに押しつぶされた",
+    ENG: "was squashed by a falling block"
+  },
+  fire: {
+    JPN: "火で焼け死んだ",
+    ENG: "went up in flames"
+  },
+  fireTick: {
+    JPN: "火で焼け死んだ",
+    ENG: "burned to death"
+  },
+  fireworks: {
+    JPN: "花火で倒された",
+    ENG: "went off with a bang"
+  },
+  flyIntoWall: {
+    JPN: "壁に激突して倒れた",
+    ENG: "experienced kinetic energy"
+  },
+  freezing: {
+    JPN: "凍死した",
+    ENG: "froze to death"
+  },
+  lava: {
+    JPN: "溶岩で焼け死んだ",
+    ENG: "tried to swim in lava"
+  },
+  lightning: {
+    JPN: "雷に打たれた",
+    ENG: "was struck by lightning"
+  },
+  magic: {
+    JPN: "魔法で倒された",
+    ENG: "was killed by magic"
+  },
+  magma: {
+    JPN: "マグマブロックで倒れた",
+    ENG: "discovered the floor was lava"
+  },
+  projectile: {
+    JPN: "飛び道具で倒された",
+    ENG: "was shot"
+  },
+  stalactite: {
+    JPN: "鍾乳石に貫かれた",
+    ENG: "was pierced by a falling stalactite"
+  },
+  stalagmite: {
+    JPN: "尖った鍾乳石に貫かれた",
+    ENG: "was impaled on a stalagmite"
+  },
+  starve: {
+    JPN: "飢え死にした",
+    ENG: "starved to death"
+  },
+  suffocation: {
+    JPN: "窒息死した",
+    ENG: "suffocated in a wall"
+  },
+  void: {
+    JPN: "奈落に落ちた",
+    ENG: "fell out of the world"
+  },
+  wither: {
+    JPN: "衰弱して倒れた",
+    ENG: "withered away"
+  },
+  sonicBoom: {
+    JPN: "ソニックブームで倒された",
+    ENG: "was obliterated by a sonic boom"
+  },
+  maceSmash: {
+    JPN: "メイスで叩きつぶされた",
+    ENG: "was smashed by a mace"
   }
 };
 
@@ -52,17 +147,23 @@ const MSG_PREFIX = "[PVPbot]";
 // 全プレイヤーにメッセージを送信する関数
 function broadcastMessage(message) {
   let players;
-  try {
-    players = world.getPlayers();
-  } catch (error) {
-    console.error(`[PVPbot] プレイヤー一覧を取得できませんでした: ${error}`);
+  try
+  {
+    players = world.getPlayers(); // 全プレイヤーを取得
+    console.log(`${MSG_PREFIX} 全プレイヤーにメッセージを送信`);
+  } catch (error)
+  {
+    console.error(`${MSG_PREFIX} プレイヤー一覧を取得できませんでした: ${error}`);
     return;
   }
   for (const player of players) {
-    try {
-      player.sendMessage(message);
-    } catch (error) {
-      console.error(`[PVPbot] ${player.name}へのメッセージ送信に失敗しました: ${error}`);
+    try
+    {
+      player.sendMessage(message);  // プレイヤーにメッセージを送信
+      console.log(`${MSG_PREFIX} ${player.name} へメッセージ送信: ${message}`);
+    } catch (error)
+    {
+      console.error(`${MSG_PREFIX}  ${player.name}へのメッセージ送信に失敗しました: ${error}`);
     }
   }
 }
@@ -76,26 +177,19 @@ function getLangKey(player) {
     // 言語情報が取得できなかった場合
     if (!lang)
     {
-      // デバッグモードの場合
-      if(IS_DEBUG)
-      {
-        console.warn(`${MSG_PREFIX} 言語取得できないため日本語に設定します: ${player.name}.`);
-      }
+      console.warn(`${MSG_PREFIX} 言語取得できないため日本語に設定します: ${player.lang}.`);
       return "JPN";
     }
 
     // 文字列をすべて小文字に変換（例: "ja_JP" も "ja-JP" も "ja_jp" に統一される）
     const lowerLang = lang.toLowerCase();
 
+    console.log(`${MSG_PREFIX} ${player.name} の言語: ${lowerLang}`);
     return lowerLang.includes("ja") ? "JPN" : "ENG";
   }
   catch
   {
-    // デバッグモードの場合
-    if(IS_DEBUG)
-    {
-      console.warn(`${MSG_PREFIX} 例外発生のため日本語に設定します: ${player.name}.`);
-    }
+    console.warn(`${MSG_PREFIX} 例外発生のため日本語に設定します: ${player.lang}.`);
     return "JPN"; // 万が一エラーが起きても日本語をデフォルトにする
   }
 }
@@ -110,7 +204,7 @@ function broadcastChat(key, ...args) {
     if (!item)
     {
       // 警告を出して処理を中断
-      console.warn(`${MSG_PREFIX} Message key "${key}" not found.`);
+      console.warn(`${MSG_PREFIX} メッセージがありません: ${key}`);
       return;
     }
 
@@ -123,11 +217,12 @@ function broadcastChat(key, ...args) {
       // 中身が関数（動的テキスト）か、ただの文字列かで処理を分ける
       const text = typeof content === "function" ? content(...args) : content;
       player.sendMessage(text);
+      console.log(`${MSG_PREFIX} ${player.name} へメッセージ送信: ${text}`);
     }
   }
   catch (error)
   {
-    console.error(`${MSG_PREFIX} Failed to broadcast message: ${error}`);
+    console.error(`${MSG_PREFIX} メッセージの配信に失敗しました: ${error}`);
   }
 }
 
@@ -442,12 +537,14 @@ function registerSpawnSetup({
   applyTargetMode,
   initializeInventory,
 }) {
-  if (world.afterEvents.entityLoad) {
+  if (world.afterEvents.entityLoad)
+    {
     world.afterEvents.entityLoad.subscribe((ev) => {
       const entity = ev.entity;
       if (!entity || entity.typeId !== masterId) return;
       system.runTimeout(() => {
-        try {
+        try
+        {
           equipWeapon(entity);
           equipLevelArmor(entity);
           equipOffhandShield(entity);
@@ -455,53 +552,58 @@ function registerSpawnSetup({
           updateName(entity);
           applyLevelBuffs(entity);
           applyTargetMode(entity);
-        } catch {}
+        }
+        catch
+        {
+          console.warn(`[PVPbot] スポーン時の初期化に失敗しました: ${error}`);
+        }
         initializeInventory(entity);
       }, 10);
     });
   }
 
-// スポーン時の初期化処理  
-world.afterEvents.entitySpawn.subscribe((ev) => {
-  const entity = ev.entity;
-  if (!entity || entity.typeId !== masterId) return;
+  world.afterEvents.entitySpawn.subscribe((ev) => {
+    const entity = ev.entity;
+    if (!entity || entity.typeId !== masterId) return;
 
-  // 卵のバグ対策：ボットの初期化直前に、名タグや周囲の状況からレベルを強制的に再判定する
-  try {
-    const properties = entity.getComponent("minecraft:health");
-    // スポーン時に一時的に名前からレベルを割り出す、またはプロパティを安全に上書き
-    const currentLevel = getLevel(entity);
-    entity.setProperty("pvp:skin_level", currentLevel);
-  } catch {}
+    try
+    {
+      // 入室メッセージを送信
+      const lvNum = getLevel(entity);
+      const lvName = levels[lvNum]?.name || "unknown";
+      broadcastChat("SPAWN_MESSAGE", lvName);
+    }
+    catch (error)
+    {
+      console.warn(`[PVPbot] 入室メッセージを送信できませんでした: ${error}`);
+    }
 
-  try {
-    broadcastChat("SPAWN_MESSAGE", levels[getLevel(entity)].name);
-  } catch (error) {
-    console.warn(`[PVPbot] 入室メッセージを送信できませんでした: ${error}`);
-  }
-
-  try {
-    system.runTimeout(() => {
-      try {
-        // スポーンして0.5秒後に、確定した正しいレベルの装備とバフを確実に配る
-        applyLevelBuffs(entity);
-        initializeInventory(entity);
-        equipWeapon(entity);
-        equipLevelArmor(entity);
-        equipOffhandShield(entity);
-        syncSkin(entity);
-        updateName(entity);
-        
-        const health = entity.getComponent("minecraft:health");
-        if (health) health.resetToMaxValue();
-      } catch (error) {
-        console.warn(`[PVPbot] スポーン時の初期化に失敗しました: ${error}`);
-      }
-    }, 10);
-  } catch (error) {
-    console.warn(`[PVPbot] スポーン時の初期化を予約できませんでした: ${error}`);
-  }
-});
+    try
+    {
+      system.runTimeout(() => {
+        try
+        {
+          applyLevelBuffs(entity);
+          initializeInventory(entity);
+          equipWeapon(entity);
+          equipLevelArmor(entity);
+          equipOffhandShield(entity);
+          syncSkin(entity);
+          updateName(entity);
+          const health = entity.getComponent("minecraft:health");
+          if (health) health.resetToMaxValue();
+        }
+        catch (error)
+        {
+          console.warn(`[PVPbot] スポーン時の初期化に失敗しました: ${error}`);
+        }
+      }, 10);
+    }
+    catch (error)
+    {
+      console.warn(`[PVPbot] スポーン時の初期化を予約できませんでした: ${error}`);
+    }
+  });
 }
 
 function registerDeathHandler(dependencies) {
@@ -512,90 +614,92 @@ function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems,
   const dead = ev.deadEntity;
   if (!dead) return;
 
-  if (dead.typeId === masterId) {
-    broadcastMessage("§e[PVPbot] Botの死亡イベントを検知しました");
+  if (dead.typeId === masterId)
+    {
     let droppedAmount = 0;
-    try {
+    try
+    {
       droppedAmount = dropInventoryItems(dead) || 0;
-    } catch (error) {
+    }
+    catch (error)
+    {
       console.warn(`[PVPbot] 死亡時にインベントリアイテムを回収できませんでした: ${error}`);
-      broadcastMessage(`§c[PVPbot] インベントリアイテムのドロップ準備に失敗しました: ${error}`);
     }
 
     let killer;
     let botName = "PVPbot";
     let cause;
-    try { killer = ev.damageSource && ev.damageSource.damagingEntity; } catch {}
-    try { botName = dead.nameTag || botName; } catch {}
-    try { cause = ev.damageSource && ev.damageSource.cause; } catch {}
+    try
+    {
+      killer = ev.damageSource && ev.damageSource.damagingEntity;
+    }
+    catch
+    {
 
-    const causes = {
-      anvil: "金床に押しつぶされた",
-      blockExplosion: "爆発で倒された",
-      drowning: "溺死した",
-      entityExplosion: "爆発で倒された",
-      fall: "落下死した",
-      fallingBlock: "落下ブロックに押しつぶされた",
-      fire: "火で焼け死んだ",
-      fireTick: "火で焼け死んだ",
-      fireworks: "花火で倒された",
-      flyIntoWall: "壁に激突して倒れた",
-      freezing: "凍死した",
-      lava: "溶岩で焼け死んだ",
-      lightning: "雷に打たれた",
-      magic: "魔法で倒された",
-      magma: "マグマブロックで倒れた",
-      projectile: "飛び道具で倒された",
-      stalactite: "鍾乳石に貫かれた",
-      stalagmite: "尖った鍾乳石に貫かれた",
-      starve: "飢え死にした",
-      suffocation: "窒息死した",
-      void: "奈落に落ちた",
-      wither: "衰弱して倒れた",
-      sonicBoom: "ソニックブームで倒された",
-      maceSmash: "メイスで叩きつぶされた",
-    };
+    }
+    try
+    {
+      const lvNum = getLevel(dead); 
+      botName = LEVELS[lvNum]?.name || "PVPbot";
+    }
+    catch
+    {
+      botName = "PVPbot"; // 万が一レベルが読めなくてもフリーズしない
+    }
+    try
+    {
+      cause = ev.damageSource && ev.damageSource.cause;
+    }
+    catch
+    {
+
+    }
+
     let deathMessage = `§f${botName}は倒された`;
-    try {
-      if (killer && killer.typeId === "minecraft:player") {
+    try
+    {
+      //プレイヤーによるキルの場合
+      if (killer && killer.typeId === "minecraft:player")
+      {
         deathMessage = `§f${botName}は${killer.name}に殺害された`;
-      } else if (killer) {
+        broadcastMessage(MSG_DATA.PLAYER_KILL_MESSAGE(botName, killer.name));         // 死亡メッセージを送信
+      }
+      //ボットによるキルの場合
+      else if (killer)
+      {
         const killerName = killer.nameTag || killer.typeId;
         deathMessage = `§f${botName}は${killerName}に倒された`;
-      } else {
-        deathMessage = `§f${botName}は${causes[cause] || `${cause || "不明な原因"}で倒された`}`;
+        broadcastMessage(MSG_DATA.BOT_KILL_MESSAGE(botName, killerName));         // 死亡メッセージを送信
       }
-    } catch (error) {
-      console.warn(`[PVPbot] 死因を取得できませんでした: ${error}`);
+      //死因が取得できない場合
+      else
+      {
+        deathMessage = `§f${botName}は${MSG_DEATH_CAUSE[cause]?.[langKey] || `${cause || "不明な原因"}で倒された`}`;
+        broadcastMessage(MSG_DATA.DEATH_MESSAGE(botName, cause));         // 死亡メッセージを送信
+      }
     }
-    broadcastMessage(deathMessage);
-    broadcastMessage(droppedAmount > 0
-      ? `§e${botName}がゲームを退出しました（インベントリのアイテム ${droppedAmount} 個をドロップ）`
-      : `§e${botName}がゲームを退出しました（ドロップできるインベントリアイテムはありません）`);
+    catch (error)
+    {
+      console.warn(`${MSG_PREFIX} 死因を取得できませんでした: ${error}`);
+    }
+    //broadcastMessage(deathMessage);         // 死亡メッセージを送信
+    broadcastChat("EXIT_MESSAGE", botName); // 退出メッセージを送信
 
-    const state = states.get(dead.id);
-    if (state) {
-      for (const water of state.placedWater) {
-        try {
-          const block = world.getDimension(water.dimId).getBlock({
-            x: water.x,
-            y: water.y,
-            z: water.z,
-          });
-          if (block && block.typeId === "minecraft:water") block.setType("minecraft:air");
-        } catch {}
-      }
-    }
-    states.delete(dead.id);
     return;
   }
 
   const killer = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
-  if (dead.typeId === "minecraft:player" && killer && killer.typeId === masterId) {
-    try {
+  if (dead.typeId === "minecraft:player" && killer && killer.typeId === masterId)
+  {
+    try
+    {
       const health = killer.getComponent("minecraft:health");
       if (health) health.resetToMaxValue();
-    } catch {}
+    }
+    catch
+    {
+      console.warn(`[PVPbot] キル後に体力を回復できませんでした: ${killer.name}`);
+    }
   }
 }
 
@@ -749,12 +853,14 @@ function createInventoryDropper({ getBotInventory, broadcastMessage }) {
     const location = { ...master.location, y: master.location.y + 0.25 };
     system.runTimeout(() => {
       for (const item of items) {
-        try {
+        try
+        {
           dimension.spawnItem(item, location);
           console.info(`[PVPbot] インベントリアイテムをドロップしました: ${item.typeId} x${item.amount}`);
-        } catch (error) {
+        }
+        catch (error)
+        {
           console.error(`[PVPbot] インベントリアイテムをドロップできませんでした (${item.typeId} x${item.amount}): ${error}`);
-          broadcastMessage(`§c[PVPbot] ${item.typeId.replace("minecraft:", "")} のドロップに失敗しました: ${error}`);
         }
       }
     }, 1);
@@ -942,33 +1048,16 @@ function createHealingHandler({
     if (!Number.isFinite(maxHealth) || maxHealth <= 0 || !Number.isFinite(currentHealth)) return false;
     const healthRatio = currentHealth / maxHealth;
     if (healthRatio > config.healThr) return false;
-    if (state.healStatusCd <= 0) {
-      state.healStatusCd = 40;
-      broadcastMessage(
-        `[PVPbot] 回復判定: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)} ` +
-        `(${Math.round(healthRatio * 100)}%)、しきい値 ${Math.round(config.healThr * 100)}%、` +
-        `食料 ${state.healingItemAmount}個、待機 ${Math.ceil(state.healCd / 20)}秒、回復中 ${state.healing}`
-      );
-    }
+
     if (state.healing || state.healCd > 0 || state.healingItemAmount < 1) return false;
 
     if (!consumeHealingItem(master)) {
       state.healCd = config.healCd;
-      broadcastMessage("[PVPbot] 回復を開始できません: 食料の残数がありません");
       return false;
     }
 
     const healingItem = getHealingItem(master);
     state.healing = true;
-    const mainhandMode = getMainhandMode(master, state);
-    const switchedToModeItem = updateMainhandMode(master, true);
-
-    const mainhandStatus = !switchedToModeItem
-      ? "手持ちの切り替えに失敗しました"
-      : mainhandMode === "falling"
-        ? "落下中のため水バケツを保持します"
-        : `${healingItem.id.replace("minecraft:", "")}（残り${state.healingItemAmount}個）`;
-    broadcastMessage(`§e[PVPbot] 回復開始: HP ${Math.round(currentHealth)}/${Math.round(maxHealth)}、${mainhandStatus}`);
 
     state.healCd = config.healCd;
     try {
@@ -995,9 +1084,6 @@ function createHealingHandler({
         const targetHealth = Math.min(currentHealthComponent.effectiveMax, before + config.healAmt);
         if (Number.isFinite(targetHealth) && targetHealth > 0) {
           currentHealthComponent.setCurrentValue(targetHealth);
-          broadcastMessage(
-            `§a[PVPbot] 回復しました（体力 ${Math.round(before)} → ${Math.round(currentHealthComponent.currentValue)}）`
-          );
         }
 
         if (healingItem.id === "minecraft:golden_apple") {
@@ -1574,7 +1660,11 @@ function updateName(master) {
     const maximum = health ? Math.ceil(health.effectiveMax) : "?";
     const nameTag = `PVPbot（${LEVELS[lv].name}） §cHP ${current}/${maximum}`;
     if (master.nameTag !== nameTag) master.nameTag = nameTag;
-  } catch {}
+  }
+  catch
+  {
+
+  }
 }
 
 function syncSkin(master) {
@@ -1632,7 +1722,11 @@ function getHeldItemId(master) {
       const held = eq.getEquipment(EquipmentSlot.Mainhand);
       return held ? held.typeId : "(素手)";
     }
-  } catch {}
+  }
+  catch
+  {
+
+  }
   return null;
 }
 
@@ -1722,7 +1816,6 @@ system.runInterval(() => {
         tryStartHealing(master);
       } catch (error) {
         console.error(`[PVPbot] 独立した回復判定に失敗しました: ${error}`);
-        broadcastMessage(`[PVPbot] 回復判定エラー: ${error}`);
       }
       try {
         tickWaterBucket(master, dim, dimId, getState(master), isEditProtected);
@@ -1954,12 +2047,6 @@ world.afterEvents.entityHurt.subscribe((ev) => {
     const c = cfg(hurt);
     if (state.healStatusCd <= 0) {
       state.healStatusCd = 40;
-      const ratio = hp.effectiveMax > 0 ? hp.currentValue / hp.effectiveMax : 0;
-      broadcastMessage(
-        `[PVPbot] 回復判定: HP ${Math.round(hp.currentValue)}/${Math.round(hp.effectiveMax)} ` +
-        `(${Math.round(ratio * 100)}%)、開始条件 ${Math.round(c.healThr * 100)}%以下、` +
-        `食料 ${state.healingItemAmount}個、待機 ${Math.ceil(state.healCd / 20)}秒`
-      );
     }
     
     system.run(() => {
@@ -1968,9 +2055,10 @@ world.afterEvents.entityHurt.subscribe((ev) => {
         if (hurt.isValid && hp.currentValue > 0) {
           tryStartHealing(hurt);
         }
-      } catch (error) {
+      }
+      catch (error)
+      {
         console.error(`[PVPbot] 被ダメージ後の回復開始に失敗しました: ${error}`);
-        broadcastMessage(`[PVPbot] 回復開始エラー: ${error}`);
       }
     });
   }

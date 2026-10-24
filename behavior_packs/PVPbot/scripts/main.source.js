@@ -115,7 +115,11 @@ function updateName(master) {
     const maximum = health ? Math.ceil(health.effectiveMax) : "?";
     const nameTag = `PVPbot（${LEVELS[lv].name}） §cHP ${current}/${maximum}`;
     if (master.nameTag !== nameTag) master.nameTag = nameTag;
-  } catch {}
+  }
+  catch
+  {
+
+  }
 }
 
 function syncSkin(master) {
@@ -173,7 +177,11 @@ function getHeldItemId(master) {
       const held = eq.getEquipment(EquipmentSlot.Mainhand);
       return held ? held.typeId : "(素手)";
     }
-  } catch {}
+  }
+  catch
+  {
+
+  }
   return null;
 }
 
@@ -263,7 +271,6 @@ system.runInterval(() => {
         tryStartHealing(master);
       } catch (error) {
         console.error(`[PVPbot] 独立した回復判定に失敗しました: ${error}`);
-        broadcastMessage(`[PVPbot] 回復判定エラー: ${error}`);
       }
       try {
         tickWaterBucket(master, dim, dimId, getState(master), isEditProtected);
@@ -495,12 +502,6 @@ world.afterEvents.entityHurt.subscribe((ev) => {
     const c = cfg(hurt);
     if (state.healStatusCd <= 0) {
       state.healStatusCd = 40;
-      const ratio = hp.effectiveMax > 0 ? hp.currentValue / hp.effectiveMax : 0;
-      broadcastMessage(
-        `[PVPbot] 回復判定: HP ${Math.round(hp.currentValue)}/${Math.round(hp.effectiveMax)} ` +
-        `(${Math.round(ratio * 100)}%)、開始条件 ${Math.round(c.healThr * 100)}%以下、` +
-        `食料 ${state.healingItemAmount}個、待機 ${Math.ceil(state.healCd / 20)}秒`
-      );
     }
     
     system.run(() => {
@@ -509,9 +510,10 @@ world.afterEvents.entityHurt.subscribe((ev) => {
         if (hurt.isValid && hp.currentValue > 0) {
           tryStartHealing(hurt);
         }
-      } catch (error) {
+      }
+      catch (error)
+      {
         console.error(`[PVPbot] 被ダメージ後の回復開始に失敗しました: ${error}`);
-        broadcastMessage(`[PVPbot] 回復開始エラー: ${error}`);
       }
     });
   }
