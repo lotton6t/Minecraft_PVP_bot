@@ -33,8 +33,8 @@ REM ------------------------------------------------------------
 REM 1. resource_packs の丸ごと転送
 REM ------------------------------------------------------------
 echo [PVPbot] リソースパックを転送中...
-if exist "%CURRENT_DIR%resource_packs" (
-    xcopy "%CURRENT_DIR%resource_packs" "%DEST_DIR%\resource_packs" /E /I /Y /Q >nul
+if exist "%CURRENT_DIR%..\resource_packs" (
+    xcopy "%CURRENT_DIR%..\resource_packs" "%DEST_DIR%\resource_packs" /E /I /Y /Q >nul
     echo リソースパックのコピーが完了しました。
 ) else (
     echo resource_packs フォルダが見つかりません（スキップ）。
@@ -46,9 +46,9 @@ REM ------------------------------------------------------------
 REM 2. behavior_packs の転送（scriptsフォルダのクレンジング機能付き）
 REM ------------------------------------------------------------
 echo [PVPbot] ビヘイビアパックを転送中...
-if exist "%CURRENT_DIR%behavior_packs" (
+if exist "%CURRENT_DIR%..\behavior_packs" (
     REM まずはビヘイビアパック全体を一度丸ごと上書きコピー
-    xcopy "%CURRENT_DIR%behavior_packs" "%DEST_DIR%\behavior_packs" /E /I /Y /Q >nul
+    xcopy "%CURRENT_DIR%..\behavior_packs" "%DEST_DIR%\behavior_packs" /E /I /Y /Q >nul
 
     REM 転送先にある PVPbot の scripts フォルダのパスを特定
     set "DEST_SCRIPTS=%DEST_DIR%\behavior_packs\PVPbot\scripts"
@@ -73,7 +73,7 @@ if exist "%CURRENT_DIR%behavior_packs" (
         echo ビヘイビアパックのコピーが完了しました。(scriptsなし)
     )
 ) else (
-    echo behavior_packs フォルダが見つかりません（スキップ）。
+    echo behavior_packs フォルダが見つかりません（スキップ）なんだこれ。
 )
 
 echo ------------------------------------------------------------
