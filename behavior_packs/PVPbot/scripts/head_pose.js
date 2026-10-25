@@ -29,14 +29,8 @@ export function updateHeadPose(master, state) {
       state.headYaw = Number.isFinite(currentYaw) ? currentYaw : 0;
     }
 
-    const pitchDelta = targetPitch - state.headPitch;
-    const yawDelta = targetYaw - state.headYaw;
-    const pitch = Math.abs(pitchDelta) < 0.5
-      ? targetPitch
-      : state.headPitch + pitchDelta * 0.2;
-    const yaw = Math.abs(yawDelta) < 0.5
-      ? targetYaw
-      : state.headYaw + yawDelta * 0.2;
+    const pitch = Math.max(-60, Math.min(60, targetPitch));
+    const yaw = Math.max(-90, Math.min(90, targetYaw));
 
     if (state.headPitch !== pitch) {
       master.setProperty("pvp:head_pitch", pitch);

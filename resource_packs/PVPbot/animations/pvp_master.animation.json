@@ -6,9 +6,9 @@
       "bones": {
         "head": {
           "rotation": [
-            "query.property('pvp:head_pitch')",
-            "query.property('pvp:head_yaw')",
-            0
+            "variable.smooth_pitch",
+            "variable.smooth_yaw",
+            0.0
           ]
         }
       }

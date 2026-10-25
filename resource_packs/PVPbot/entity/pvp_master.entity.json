@@ -24,12 +24,16 @@
       "scripts": {
         "initialize": [
           "variable.is_holding_right = 1.0;",
-          "variable.gliding_speed_value = 1.0;"
+          "variable.gliding_speed_value = 1.0;",
+          "variable.smooth_pitch = 0.0;",
+          "variable.smooth_yaw = 0.0;"
         ],
         "pre_animation": [
           "variable.tcos0 = (math.cos(query.modified_distance_moved * 38.17) * query.modified_move_speed / variable.gliding_speed_value) * 57.3;",
           "variable.bob_animation = query.life_time;",
-          "variable.attack_body_rot_y = Math.sin(360*Math.sqrt(variable.attack_time)) * 5.0;"
+          "variable.attack_body_rot_y = Math.sin(360*Math.sqrt(variable.attack_time)) * 5.0;",
+          "variable.smooth_pitch = math.lerp(variable.smooth_pitch, query.property('pvp:head_pitch'), math.clamp(query.delta_time * 5.0, 0.0, 1.0));",
+          "variable.smooth_yaw = math.lerp(variable.smooth_yaw, query.property('pvp:head_yaw'), math.clamp(query.delta_time * 5.0, 0.0, 1.0));"
         ],
         "animate": [
           "humanoid_base_pose",
@@ -50,7 +54,7 @@
         "bob": "animation.humanoid.bob",
         "holding": "animation.humanoid.holding",
         "attack_controller": "controller.animation.humanoid.attack",
-        "attack_rotations": "animation.humanoid.attack.rotations"
+        "attack.rotations": "animation.humanoid.attack.rotations"
       },
       "render_controllers": [
         "controller.render.pvp_master"
