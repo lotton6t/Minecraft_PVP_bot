@@ -1,3 +1,5 @@
 *.lnk
 build/copyAddress.txt
 build/copyFolder.txt
+node_modules/
+build/copyAddress_main.js.txt
