@@ -17,14 +17,14 @@ try {
 
 // esbuild の共通設定
 const config = {
-  entryPoints: ['build/build_scripts/main.js'],
+  entryPoints: ['build/build_scripts/main.source.js'],
   bundle: true,
   minify: !isWatch, // watch モードの時は軽量化せずデバッグしやすくする
   sourcemap: true,
   platform: 'neutral',
   target: 'es2020',
   external: ['@minecraft/server'],
-  outfile: 'behavior_packs/behavior_packs/PVPbot/scripts/main.js',
+  outfile: 'behavior_packs/PVPbot/scripts/main.js',
   plugins: [{
     name: 'copy-on-end',
     setup(build) {
