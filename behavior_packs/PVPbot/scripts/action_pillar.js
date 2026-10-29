@@ -1,5 +1,6 @@
-import { isProtected } from "./block_protection.js";
-import { isEditProtected } from "./edit_protection.js";
+import { isProtected, isEditProtected } from "./block_protection.js";
+import { putBlock } from "./block_put.js";
+import { preparePillarJump } from "./action_jump.js";
 
 export const PILLAR_BLOCK = "minecraft:cobblestone";
 
@@ -49,30 +50,11 @@ function createPillarBehavior({ isEditProtected, isProtected }) {
     let desiredY = location.y;
 
     if (pillar.phase === "jump") {
-      let placementY = Math.floor(location.y + 0.02);
-      try {
-        const blockBelow = dim.getBlock({ x: pillar.bx, y: placementY, z: pillar.bz });
-        if (blockBelow && !blockBelow.isAir && !blockBelow.isLiquid) placementY++;
-      } catch {}
-
-      try {
-        const targetBlock = dim.getBlock({ x: pillar.bx, y: placementY, z: pillar.bz });
-        if (targetBlock && !targetBlock.isAir && !targetBlock.isLiquid) {
-          stopPillar(state);
-          return false;
-        }
-      } catch {}
-
-      try {
-        const headBlock = dim.getBlock({ x: pillar.bx, y: placementY + 2, z: pillar.bz });
-        if (headBlock && !headBlock.isAir && !headBlock.isLiquid) {
-          if (isProtected(headBlock.typeId)) {
-            stopPillar(state);
-            return false;
-          }
-          dim.runCommand(`setblock ${pillar.bx} ${placementY + 2} ${pillar.bz} air destroy`);
-        }
-      } catch {}
+      const placementY = preparePillarJump(location, pillar, dim, isProtected);
+      if (placementY === null) {
+        stopPillar(state);
+        return false;
+      }
 
       pillar.placeY = placementY;
       pillar.phase = "rise";
@@ -87,17 +69,19 @@ function createPillarBehavior({ isEditProtected, isProtected }) {
         try {
           const block = dim.getBlock({ x: pillar.bx, y: pillar.placeY, z: pillar.bz });
           if (block && (block.isAir || block.isLiquid)) {
-            block.setType(PILLAR_BLOCK);
-            placed = true;
-            dim.playSound("use.stone", {
-              x: pillar.bx + 0.5,
-              y: pillar.placeY + 0.5,
-              z: pillar.bz + 0.5,
-            });
-            dim.spawnParticle("minecraft:crop_growth_emitter", {
-              x: pillar.bx + 0.5,
-              y: pillar.placeY + 1.1,
-              z: pillar.bz + 0.5,
+            placed = putBlock(dim, block, PILLAR_BLOCK, {
+              sound: "use.stone",
+              soundLocation: {
+                x: pillar.bx + 0.5,
+                y: pillar.placeY + 0.5,
+                z: pillar.bz + 0.5,
+              },
+              particle: "minecraft:crop_growth_emitter",
+              particleLocation: {
+                x: pillar.bx + 0.5,
+                y: pillar.placeY + 1.1,
+                z: pillar.bz + 0.5,
+              },
             });
           }
         } catch {}

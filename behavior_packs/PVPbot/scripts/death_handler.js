@@ -5,7 +5,7 @@ export function registerDeathHandler(dependencies) {
   world.afterEvents.entityDie.subscribe((ev) => handleEntityDeath(ev, dependencies));
 }
 
-function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems, states }) {
+function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems, states, getLevel, getBotLevelName }) {
   const dead = ev.deadEntity;
   if (!dead) return;
 
@@ -34,8 +34,7 @@ function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems,
     }
     try
     {
-      const lvNum = getLevel(dead); 
-      botName = LEVELS[lvNum]?.name || "PVPbot";
+      botName = getBotLevelName(getLevel(dead));
     }
     catch
     {

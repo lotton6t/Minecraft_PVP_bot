@@ -4,7 +4,7 @@
 //        水バケツMLG / ブロック破壊 / 勝敗判定 /
 //        召喚イベントと5種類のレベル別スポーンエッグに対応
 // ============================================================
-import { world, system, GameMode, EquipmentSlot, ItemStack, Direction } from "@minecraft/server";
+import { world, system, GameMode, Direction } from "@minecraft/server";
 
 const MSG_DATA = {
   LOAD_SUCCESS: {
@@ -293,6 +293,14 @@ const INVENTORY_CONFIG = {
     },
   },
 };
+
+function getBotInventory(master) {
+  const inventory = master.getComponent("minecraft:inventory");
+  if (!inventory || !inventory.container) {
+    throw new Error("Bot inventory is unavailable");
+  }
+  return inventory.container;
+}
 
 
 
@@ -610,6 +618,8 @@ const UNBREAKABLE = new Set([
   "minecraft:flowing_water", "minecraft:flowing_lava",
 ]);
 
+const PROTECT_SCAN_DEPTH = 128;
+
 function isProtected(typeId) {
   if (UNBREAKABLE.has(typeId)) return true;
   if (typeId.endsWith("shulker_box")) return true;
@@ -618,17 +628,35 @@ function isProtected(typeId) {
   return false;
 }
 
+function isEditProtected(dim, x, y, z) {
+  try {
+    const bx = Math.floor(x), bz = Math.floor(z);
+    let minY = -64;
+    try { minY = dim.heightRange.min; } catch {}
+    const start = Math.floor(y) - 1;
+    const stop = Math.max(minY, start - PROTECT_SCAN_DEPTH);
+    for (let yy = start; yy >= stop; yy--) {
+      let block;
+      try { block = dim.getBlock({ x: bx, y: yy, z: bz }); } catch { return false; }
+      if (!block) return false;
+      const id = block.typeId;
+      if (id === "minecraft:deny" || id === "minecraft:border_block") return true;
+      if (id === "minecraft:allow") return false;
+    }
+  } catch {}
+  return false;
+}
+
 function registerSpawnSetup({
   masterId,
-  levels,
   getLevel,
+  getBotLevelName,
   broadcastMessage,
   equipWeapon,
   equipLevelArmor,
   equipOffhandShield,
   syncSkin,
   updateName,
-  applyLevelBuffs,
   applyTargetMode,
   initializeInventory,
 }) {
@@ -645,7 +673,6 @@ function registerSpawnSetup({
           equipOffhandShield(entity);
           syncSkin(entity);
           updateName(entity);
-          applyLevelBuffs(entity);
           applyTargetMode(entity);
         }
         catch
@@ -665,7 +692,7 @@ function registerSpawnSetup({
     {
       // 入室メッセージを送信
       const lvNum = getLevel(entity);
-      const lvName = levels[lvNum]?.name || "unknown";
+      const lvName = getBotLevelName(lvNum);
       broadcastChat("SPAWN_MESSAGE", lvName);
     }
     catch (error)
@@ -678,7 +705,6 @@ function registerSpawnSetup({
       system.runTimeout(() => {
         try
         {
-          applyLevelBuffs(entity);
           initializeInventory(entity);
           equipWeapon(entity);
           equipLevelArmor(entity);
@@ -705,7 +731,7 @@ function registerDeathHandler(dependencies) {
   world.afterEvents.entityDie.subscribe((ev) => handleEntityDeath(ev, dependencies));
 }
 
-function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems, states }) {
+function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems, states, getLevel, getBotLevelName }) {
   const dead = ev.deadEntity;
   if (!dead) return;
 
@@ -734,8 +760,7 @@ function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems,
     }
     try
     {
-      const lvNum = getLevel(dead); 
-      botName = LEVELS[lvNum]?.name || "PVPbot";
+      botName = getBotLevelName(getLevel(dead));
     }
     catch
     {
@@ -796,29 +821,23 @@ function handleEntityDeath(ev, { masterId, broadcastMessage, dropInventoryItems,
       console.warn(`[PVPbot] キル後に体力を回復できませんでした: ${killer.name}`);
     }
   }
-}
+}function createLavaEscapeBehavior({ knockback }) {
+  function isInLavaOrFire(master, dim) {
+    try {
+      if (master.isInLava === true) return "lava";
+    } catch {}
+    try {
+      const location = master.location;
+      const feet = dim.getBlock(location);
+      if (feet) {
+        const id = feet.typeId;
+        if (id === "minecraft:lava" || id === "minecraft:flowing_lava") return "lava";
+        if (id === "minecraft:fire" || id === "minecraft:soul_fire") return "fire";
+      }
+    } catch {}
+    return null;
+  }
 
-function isLavaOn() {
-  return world.getDynamicProperty("pvp_lava") === true;
-}
-
-function isInLavaOrFire(master, dim) {
-  try {
-    if (master.isInLava === true) return "lava";
-  } catch {}
-  try {
-    const location = master.location;
-    const feet = dim.getBlock(location);
-    if (feet) {
-      const id = feet.typeId;
-      if (id === "minecraft:lava" || id === "minecraft:flowing_lava") return "lava";
-      if (id === "minecraft:fire" || id === "minecraft:soul_fire") return "fire";
-    }
-  } catch {}
-  return null;
-}
-
-function createLavaBehavior({ knockback, isEditProtected, pillarBlock }) {
   function findLavaExit(master, dim) {
     const location = master.location;
     const baseY = Math.floor(location.y);
@@ -847,8 +866,8 @@ function createLavaBehavior({ knockback, isEditProtected, pillarBlock }) {
     return null;
   }
 
-  function lavaEscapeTick(master, dim, state) {
-    const inLava = isLavaOn() && isInLavaOrFire(master, dim) === "lava";
+  return function lavaEscapeTick(master, dim, state) {
+    const inLava = isInLavaOrFire(master, dim) === "lava";
     if (inLava) {
       state.lavaEsc = state.lavaEsc || { t: 0, scanCd: 0, exit: null, awayT: 0 };
       const escape = state.lavaEsc;
@@ -884,10 +903,15 @@ function createLavaBehavior({ knockback, isEditProtected, pillarBlock }) {
     }
 
     return false;
-  }
+  };
+}
 
-  function tryLavaBridge(master, target, dim, state, distance) {
-    if (!isLavaOn()) return false;
+function createBridgeAction({
+  knockback,
+  isEditProtected,
+  bridgeBlock,
+}) {
+  return function tryBridge(master, target, dim, state, distance) {
     if (state.bridgeCd > 0) { state.bridgeCd--; return false; }
     if (!master.isOnGround || distance < 2.5) return false;
 
@@ -919,14 +943,24 @@ function createLavaBehavior({ knockback, isEditProtected, pillarBlock }) {
     if (!needBridge || isEditProtected(dim, ax, feetY - 1, az)) return false;
 
     try {
-      stepAhead.setType(pillarBlock);
+      stepAhead.setType(bridgeBlock);
       dim.playSound("use.stone", { x: ax + 0.5, y: feetY - 0.5, z: az + 0.5 });
     } catch { return false; }
 
     knockback(master, nx, nz, 0.22, 0.05);
     state.bridgeCd = 6;
     return true;
-  }
+  };
+}
+
+
+function createLavaBehavior({ knockback, isEditProtected, pillarBlock }) {
+  const lavaEscapeTick = createLavaEscapeBehavior({ knockback });
+  const tryLavaBridge = createBridgeAction({
+    knockback,
+    isEditProtected,
+    bridgeBlock: pillarBlock,
+  });
 
   return { lavaEscapeTick, tryLavaBridge };
 }
@@ -1010,7 +1044,230 @@ function createInventoryDropper({ getBotInventory, broadcastMessage }) {
   }
 
   return { tryDescend };
-}// Support both applyKnockback signatures used by different Minecraft versions.
+}
+function createCqcAttackAction({ strafeAction, getLevel, criticalAction }) {
+  return function attackAtCloseRange(master, target, distance, state) {
+    if (distance >= 5.5 || state.strafeCd > 0 || !master.isOnGround) return false;
+
+    const side = Math.random() < 0.5 ? 1 : -1;
+    const level = getLevel(master);
+    const jumpPower = criticalAction(level);
+
+    strafeAction(master, target, level, side, jumpPower);
+    state.strafeCd = 7 + Math.floor(Math.random() * 7);
+    return true;
+  };
+}
+
+function createPlayerAttackAction({ masterId, knockback }) {
+  return function applyPlayerAttackKnockback(ev) {
+    const attacker = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
+    const hurt = ev.hurtEntity;
+    if (!attacker || attacker.typeId !== masterId) return;
+    if (!hurt || hurt.typeId !== "minecraft:player") return;
+    if (Math.random() >= 0.25) return;
+
+    try {
+      const dx = hurt.location.x - attacker.location.x;
+      const dz = hurt.location.z - attacker.location.z;
+      const length = Math.sqrt(dx * dx + dz * dz) || 1;
+      knockback(hurt, dx / length, dz / length, 0.3, 0.2);
+    } catch {}
+  };
+}
+
+
+
+function createBotDamageAction({ masterId, getState, tryStartHealing }) {
+  return function handleBotDamage(ev) {
+    const hurt = ev.hurtEntity;
+    if (!hurt || hurt.typeId !== masterId) return;
+
+    const health = hurt.getComponent("minecraft:health");
+    if (!health || health.currentValue <= 0) return;
+
+    const state = getState(hurt);
+    if (state.healStatusCd <= 0) state.healStatusCd = 40;
+
+    system.run(() => {
+      try {
+        if (hurt.isValid && health.currentValue > 0) {
+          tryStartHealing(hurt);
+        }
+      } catch (error) {
+        console.error(`[PVPbot] 被ダメージ後の回復開始に失敗しました: ${error}`);
+      }
+    });
+  };
+}
+
+const STRAFE_POW_BY_LEVEL = {
+  1: 0.30,
+  2: 0.35,
+  3: 0.40,
+  4: 0.45,
+  5: 0.50,
+};
+
+function createStrafeAction({ knockback }) {
+  return function strafe(master, target, level, side, jumpPower) {
+    const dx = target.location.x - master.location.x;
+    const dz = target.location.z - master.location.z;
+    const length = Math.sqrt(dx * dx + dz * dz) || 1;
+    const nx = dx / length;
+    const nz = dz / length;
+    const knockbackX = nx * 0.55 + (-nz * side) * 0.85;
+    const knockbackZ = nz * 0.55 + (nx * side) * 0.85;
+    const strafePow = STRAFE_POW_BY_LEVEL[level] ?? STRAFE_POW_BY_LEVEL[3];
+
+    knockback(master, knockbackX, knockbackZ, strafePow, jumpPower);
+  };
+}
+
+const CRIT_CHANCE_BY_LEVEL = {
+  1: 0.15,
+  2: 0.25,
+  3: 0.35,
+  4: 0.45,
+  5: 0.55,
+};
+
+function createCriticalAction() {
+  return function getCriticalJumpPower(level) {
+    const chance = CRIT_CHANCE_BY_LEVEL[level] ?? CRIT_CHANCE_BY_LEVEL[3];
+    return Math.random() < chance ? 0.45 : 0;
+  };
+}
+
+function createActionController({
+  lavaEscapeTick,
+  updateTarget,
+  tryStartHealing,
+  cqcAttackAction,
+  pillarBehavior,
+  tryDescend,
+  tryLavaBridge,
+  breakTowards,
+  distance,
+}) {
+  return function decideActions(master, dim, state) {
+    if (lavaEscapeTick(master, dim, state)) return;
+
+    const location = master.location;
+    const found = updateTarget(dim, location, state);
+    tryStartHealing(master);
+
+    if (!found) return;
+    const target = found.player;
+    const targetDistance = found.distance;
+
+    cqcAttackAction(master, target, targetDistance, state);
+
+    const targetDx = target.location.x - location.x;
+    const targetDz = target.location.z - location.z;
+    const horizontalDistance = Math.sqrt(targetDx * targetDx + targetDz * targetDz);
+    const verticalDistance = target.location.y - location.y;
+
+    if (pillarBehavior.pillarTick(master, target, dim, state)) return;
+
+    if (verticalDistance >= 2.0 && horizontalDistance <= 3.5 &&
+        master.isOnGround && state.pillarCd <= 0) {
+      pillarBehavior.startPillar(master, state);
+      state.pillarCd = 20;
+      if (pillarBehavior.pillarTick(master, target, dim, state)) return;
+    }
+
+    tryDescend(master, target, dim, state);
+    tryLavaBridge(master, target, dim, state, targetDistance);
+
+    if (targetDistance <= 5 && state.breakCd <= 0) {
+      const eye = { x: location.x, y: location.y + 1.5, z: location.z };
+      const tx = target.location.x - eye.x;
+      const ty = target.location.y + 1.0 - eye.y;
+      const tz = target.location.z - eye.z;
+      const rayLength = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
+      let blocked = false;
+      try {
+        const hit = dim.getBlockFromRay(
+          eye,
+          { x: tx / rayLength, y: ty / rayLength, z: tz / rayLength },
+          { maxDistance: Math.min(rayLength, 5), includeLiquidBlocks: false, includePassableBlocks: false }
+        );
+        blocked = !!(hit && hit.block);
+      } catch {}
+      if (blocked) {
+        state.boxTicks = (state.boxTicks || 0) + 1;
+        if (state.boxTicks > 12) {
+          breakTowards(master, target, dim);
+          state.breakCd = 10;
+          state.boxTicks = 0;
+        }
+      } else {
+        state.boxTicks = 0;
+      }
+    }
+
+    if (targetDistance > 3) {
+      if (state.lastPos) {
+        const moved = distance(location, state.lastPos);
+        if (moved < 0.06) state.stuckTicks++;
+        else state.stuckTicks = 0;
+      }
+      state.lastPos = { x: location.x, y: location.y, z: location.z };
+      if (state.stuckTicks > 15 && state.breakCd <= 0) {
+        breakTowards(master, target, dim);
+        state.breakCd = 10;
+        state.stuckTicks = 0;
+      }
+    } else {
+      state.stuckTicks = 0;
+    }
+  };
+}
+
+function createTargetSearcher({ getTargetMode, targetTag, distance, excludeGameModes }) {
+  function findNearestPlayer(dim, location) {
+    const tagMode = getTargetMode() === "tag";
+    let nearest = null;
+    let nearestDistance = Infinity;
+    for (const player of dim.getPlayers({
+      location,
+      maxDistance: 150,
+      excludeGameModes,
+    })) {
+      if (tagMode) {
+        try {
+          if (!player.hasTag(targetTag)) continue;
+        } catch {
+          continue;
+        }
+      }
+      const playerDistance = distance(player.location, location);
+      if (playerDistance < nearestDistance) {
+        nearestDistance = playerDistance;
+        nearest = player;
+      }
+    }
+    return nearest ? { player: nearest, distance: nearestDistance } : null;
+  }
+
+  function updateTarget(dim, location, state) {
+    if (state.scanCd === undefined || state.scanCd <= 0) {
+      state.cachedTarget = findNearestPlayer(dim, location);
+      state.scanCd = 4;
+    } else {
+      state.scanCd--;
+      if (state.cachedTarget && !state.cachedTarget.player.isValid) state.cachedTarget = null;
+    }
+
+    return state.cachedTarget
+      ? { player: state.cachedTarget.player, distance: distance(state.cachedTarget.player.location, location) }
+      : null;
+  }
+
+  return { updateTarget };
+}
+// Support both applyKnockback signatures used by different Minecraft versions.
 // Legacy: applyKnockback(dirX, dirZ, horizontal, vertical)
 // Current: applyKnockback({ x, z }, vertical)
 function knockback(entity, dx, dz, horizontal, vertical) {
@@ -1025,26 +1282,7 @@ function knockback(entity, dx, dz, horizontal, vertical) {
   return false;
 }
 
-const PROTECT_SCAN_DEPTH = 128;
-
-function isEditProtected(dim, x, y, z) {
-  try {
-    const bx = Math.floor(x), bz = Math.floor(z);
-    let minY = -64;
-    try { minY = dim.heightRange.min; } catch {}
-    const start = Math.floor(y) - 1;
-    const stop = Math.max(minY, start - PROTECT_SCAN_DEPTH);
-    for (let yy = start; yy >= stop; yy--) {
-      let block;
-      try { block = dim.getBlock({ x: bx, y: yy, z: bz }); } catch { return false; }
-      if (!block) return false;
-      const id = block.typeId;
-      if (id === "minecraft:deny" || id === "minecraft:border_block") return true;
-      if (id === "minecraft:allow") return false;
-    }
-  } catch {}
-  return false;
-}function updateHeadPose(master, state) {
+function updateHeadPose(master, state) {
   try {
     const fallingLook = state.waterMlgLookDown;
     const target = state.cachedTarget && state.cachedTarget.player;
@@ -1093,13 +1331,45 @@ function isEditProtected(dim, x, y, z) {
     }
   }
 }
+const BOT_LEVEL_NAMES = {
+  1: "見習い",
+  2: "兵士",
+  3: "騎士",
+  4: "剣聖",
+  5: "魔王級",
+};
+
+function getBotLevelName(level) {
+  return BOT_LEVEL_NAMES[level] || "unknown";
+}
+
+function createBotStatus({ getLevel }) {
+  return function updateName(master) {
+    const level = getLevel(master);
+    try {
+      const health = master.getComponent("minecraft:health");
+      const current = health ? Math.ceil(health.currentValue) : "?";
+      const maximum = health ? Math.ceil(health.effectiveMax) : "?";
+      const nameTag = `PVPbot（${getBotLevelName(level)}） §cHP ${current}/${maximum}`;
+      if (master.nameTag !== nameTag) master.nameTag = nameTag;
+    } catch {}
+  };
+}
+
+
+const HEAL_AMOUNT_BY_ITEM = {
+  "minecraft:cooked_beef": 6,
+  "minecraft:golden_carrot": 8,
+  "minecraft:golden_apple": 10,
+};
+const HEAL_THRESHOLD = 8;
+const HEAL_COOLDOWN = 100;
 
 function createHealingHandler({
   inventoryConfig,
   getLevel,
   getState,
   getBotInventory,
-  cfg,
   broadcastMessage,
   getHealingItem,
   getMainhandMode,
@@ -1128,27 +1398,28 @@ function createHealingHandler({
 
   return function tryStartHealing(master) {
     const state = getState(master);
-    const config = cfg(master);
     const health = master.getComponent("minecraft:health");
     if (!health) return false;
 
     const maxHealth = health.effectiveMax;
     const currentHealth = health.currentValue;
     if (!Number.isFinite(maxHealth) || maxHealth <= 0 || !Number.isFinite(currentHealth)) return false;
-    const healthRatio = currentHealth / maxHealth;
-    if (healthRatio > config.healThr) return false;
+    if (currentHealth > HEAL_THRESHOLD) return false;
 
     if (state.healing || state.healCd > 0 || state.healingItemAmount < 1) return false;
 
+    const healingItem = getHealingItem(master);
+    const healAmount = HEAL_AMOUNT_BY_ITEM[healingItem.id];
+    if (typeof healAmount !== "number") return false;
+
     if (!consumeHealingItem(master)) {
-      state.healCd = config.healCd;
+      state.healCd = HEAL_COOLDOWN;
       return false;
     }
 
-    const healingItem = getHealingItem(master);
     state.healing = true;
 
-    state.healCd = config.healCd;
+    state.healCd = HEAL_COOLDOWN;
     try {
       master.addEffect("slowness", 30, { amplifier: 5, showParticles: false });
       master.addEffect("weakness", 30, { amplifier: 5, showParticles: false });
@@ -1170,7 +1441,7 @@ function createHealingHandler({
         if (!currentHealthComponent || currentHealthComponent.currentValue <= 0) return;
 
         const before = currentHealthComponent.currentValue;
-        const targetHealth = Math.min(currentHealthComponent.effectiveMax, before + config.healAmt);
+        const targetHealth = Math.min(currentHealthComponent.effectiveMax, before + healAmount);
         if (Number.isFinite(targetHealth) && targetHealth > 0) {
           currentHealthComponent.setCurrentValue(targetHealth);
         }
@@ -1197,6 +1468,52 @@ function createHealingHandler({
   };
 }
 
+function putBlock(dim, block, typeId, effects = {}) {
+  try {
+    block.setType(typeId);
+  } catch {
+    return false;
+  }
+
+  if (effects.sound && effects.soundLocation) {
+    try {
+      dim.playSound(effects.sound, effects.soundLocation);
+    } catch {}
+  }
+
+  if (effects.particle && effects.particleLocation) {
+    try {
+      dim.spawnParticle(effects.particle, effects.particleLocation);
+    } catch {}
+  }
+
+  return true;
+}
+
+
+
+function preparePillarJump(location, pillar, dim, isProtected) {
+  let placementY = Math.floor(location.y + 0.02);
+  try {
+    const blockBelow = dim.getBlock({ x: pillar.bx, y: placementY, z: pillar.bz });
+    if (blockBelow && !blockBelow.isAir && !blockBelow.isLiquid) placementY++;
+  } catch {}
+
+  try {
+    const targetBlock = dim.getBlock({ x: pillar.bx, y: placementY, z: pillar.bz });
+    if (targetBlock && !targetBlock.isAir && !targetBlock.isLiquid) return null;
+  } catch {}
+
+  try {
+    const headBlock = dim.getBlock({ x: pillar.bx, y: placementY + 2, z: pillar.bz });
+    if (headBlock && !headBlock.isAir && !headBlock.isLiquid) {
+      if (isProtected(headBlock.typeId)) return null;
+      breakBlock(dim, headBlock);
+    }
+  } catch {}
+
+  return placementY;
+}
 
 
 const PILLAR_BLOCK = "minecraft:cobblestone";
@@ -1247,30 +1564,11 @@ function createPillarBehavior({ isEditProtected, isProtected }) {
     let desiredY = location.y;
 
     if (pillar.phase === "jump") {
-      let placementY = Math.floor(location.y + 0.02);
-      try {
-        const blockBelow = dim.getBlock({ x: pillar.bx, y: placementY, z: pillar.bz });
-        if (blockBelow && !blockBelow.isAir && !blockBelow.isLiquid) placementY++;
-      } catch {}
-
-      try {
-        const targetBlock = dim.getBlock({ x: pillar.bx, y: placementY, z: pillar.bz });
-        if (targetBlock && !targetBlock.isAir && !targetBlock.isLiquid) {
-          stopPillar(state);
-          return false;
-        }
-      } catch {}
-
-      try {
-        const headBlock = dim.getBlock({ x: pillar.bx, y: placementY + 2, z: pillar.bz });
-        if (headBlock && !headBlock.isAir && !headBlock.isLiquid) {
-          if (isProtected(headBlock.typeId)) {
-            stopPillar(state);
-            return false;
-          }
-          dim.runCommand(`setblock ${pillar.bx} ${placementY + 2} ${pillar.bz} air destroy`);
-        }
-      } catch {}
+      const placementY = preparePillarJump(location, pillar, dim, isProtected);
+      if (placementY === null) {
+        stopPillar(state);
+        return false;
+      }
 
       pillar.placeY = placementY;
       pillar.phase = "rise";
@@ -1285,17 +1583,19 @@ function createPillarBehavior({ isEditProtected, isProtected }) {
         try {
           const block = dim.getBlock({ x: pillar.bx, y: pillar.placeY, z: pillar.bz });
           if (block && (block.isAir || block.isLiquid)) {
-            block.setType(PILLAR_BLOCK);
-            placed = true;
-            dim.playSound("use.stone", {
-              x: pillar.bx + 0.5,
-              y: pillar.placeY + 0.5,
-              z: pillar.bz + 0.5,
-            });
-            dim.spawnParticle("minecraft:crop_growth_emitter", {
-              x: pillar.bx + 0.5,
-              y: pillar.placeY + 1.1,
-              z: pillar.bz + 0.5,
+            placed = putBlock(dim, block, PILLAR_BLOCK, {
+              sound: "use.stone",
+              soundLocation: {
+                x: pillar.bx + 0.5,
+                y: pillar.placeY + 0.5,
+                z: pillar.bz + 0.5,
+              },
+              particle: "minecraft:crop_growth_emitter",
+              particleLocation: {
+                x: pillar.bx + 0.5,
+                y: pillar.placeY + 1.1,
+                z: pillar.bz + 0.5,
+              },
             });
           }
         } catch {}
@@ -1339,6 +1639,17 @@ function createPillarBehavior({ isEditProtected, isProtected }) {
 
 const pillarBehavior = createPillarBehavior({ isEditProtected, isProtected });
 
+
+function getHeldItemId(master) {
+  try {
+    const equippable = master.getComponent("minecraft:equippable");
+    if (equippable) {
+      const held = equippable.getEquipment(EquipmentSlot.Mainhand);
+      return held ? held.typeId : "(素手)";
+    }
+  } catch {}
+  return null;
+}
 
 function createMainhandController({ inventoryConfig, getLevel, getState }) {
   function getWeaponId(master) {
@@ -1480,6 +1791,64 @@ function createInventorySetup({
     return true;
   };
 }
+
+
+function createArmorEquipper({ inventoryConfig, getLevel }) {
+  return function equipLevelArmor(master) {
+    const material = inventoryConfig.levels[getLevel(master)].armor;
+    for (const { slot, suffix } of inventoryConfig.armorSlots) {
+      const item = `${material}_${suffix}`;
+      const equipmentSlot = {
+        head: EquipmentSlot.Head,
+        chest: EquipmentSlot.Chest,
+        legs: EquipmentSlot.Legs,
+        feet: EquipmentSlot.Feet,
+      }[slot];
+      let equipped = false;
+      const errors = [];
+
+      try {
+        const equippable = master.getComponent("minecraft:equippable");
+        if (!equippable || !equipmentSlot) throw new Error("Equippable component or armor slot is unavailable");
+        equippable.setEquipment(equipmentSlot, new ItemStack(`minecraft:${item}`, 1));
+        equipped = true;
+      } catch (error) {
+        errors.push(`equippable: ${error}`);
+      }
+
+      try {
+        const result = master.runCommand(`replaceitem entity @s slot.armor.${slot} 0 ${item} 1`);
+        if (result.successCount > 0) equipped = true;
+        else errors.push(`replaceitem: ${result.statusMessage}`);
+      } catch (error) {
+        errors.push(`replaceitem: ${error}`);
+      }
+      if (!equipped) console.warn(`[PVPbot] 防具の装備に失敗しました (${item}): ${errors.join("; ")}`);
+    }
+  };
+}
+function breakBlock(dim, block, sound) {
+  const { x, y, z } = block;
+
+  try {
+    dim.runCommand(`setblock ${x} ${y} ${z} air destroy`);
+  } catch {
+    try {
+      block.setType("minecraft:air");
+    } catch {
+      return false;
+    }
+  }
+
+  if (sound) {
+    try {
+      dim.playSound(sound, { x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+    } catch {}
+  }
+
+  return true;
+}
+
 function createBlockBreaker({ isProtected, isEditProtected }) {
   return function breakTowards(master, target, dim) {
     const location = master.location;
@@ -1505,13 +1874,7 @@ function createBlockBreaker({ isProtected, isEditProtected }) {
       if (isProtected(block.typeId)) continue;
       if (isEditProtected(dim, candidate.x, candidate.y, candidate.z)) continue;
 
-      const bx = block.x, by = block.y, bz = block.z;
-      try {
-        dim.runCommand(`setblock ${bx} ${by} ${bz} air destroy`);
-      } catch {
-        try { block.setType("minecraft:air"); } catch { continue; }
-      }
-      try { dim.playSound("dig.stone", { x: bx + 0.5, y: by + 0.5, z: bz + 0.5 }); } catch {}
+      if (!breakBlock(dim, block, "dig.stone")) continue;
       broken++;
     }
   };
@@ -1533,22 +1896,6 @@ function registerCommands({
   equipWeapon,
   getHeldItemId,
 }) {
-  system.afterEvents.scriptEventReceive.subscribe((ev) => {
-    if (ev.id !== "pvpbot:lava") return;
-    const message = (ev.message || "").trim().toLowerCase();
-    if (message !== "on" && message !== "off") {
-      world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:lava <on / off>");
-      world.sendMessage("§7  on = 溶岩からの脱出・橋渡しAIを有効 / off = 無効");
-      world.sendMessage(`§7  現在: ${isLavaOn() ? "有効" : "無効"}`);
-      world.sendMessage("§7  溶岩・炎のダメージは常に受け、防具で軽減されます");
-      return;
-    }
-    world.setDynamicProperty("pvp_lava", message === "on");
-    world.sendMessage(message === "on"
-      ? "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを有効にしました"
-      : "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを無効にしました");
-  });
-
   // Usage: /scriptevent pvpbot:target tag or /scriptevent pvpbot:target all
   system.afterEvents.scriptEventReceive.subscribe((ev) => {
     if (ev.id !== "pvpbot:target") return;
@@ -1680,6 +2027,7 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
 });
 
 const MASTER_ID = "pvp:master";
+const applyPlayerAttackKnockback = createPlayerAttackAction({ masterId: MASTER_ID, knockback });
 const SPAWN_EGG_LEVELS = {
   "pvpbot:spawn_egg_1": 1,
   "pvpbot:spawn_egg_2": 2,
@@ -1689,14 +2037,6 @@ const SPAWN_EGG_LEVELS = {
 };
 
 // ---------- 強さレベル定義 (1〜5) ----------
-// strength/resistance/health_boost は -1 でエフェクトなし
-const LEVELS = {
-  1: { name: "見習い",   strength: -1, resistance: -1, hboost: -1, healAmt: 6,  healThr: 0.45, healCd: 240, crit: 0.15, strafePow: 0.30 },
-  2: { name: "兵士",     strength: -1, resistance: -1, hboost: 0,  healAmt: 8,  healThr: 0.55, healCd: 200, crit: 0.25, strafePow: 0.35 },
-  3: { name: "騎士",     strength: 0,  resistance: -1, hboost: 1,  healAmt: 10, healThr: 0.65, healCd: 160, crit: 0.35, strafePow: 0.40 },
-  4: { name: "剣聖",     strength: 0,  resistance: 0,  hboost: 3,  healAmt: 12, healThr: 0.70, healCd: 130, crit: 0.45, strafePow: 0.45 },
-  5: { name: "魔王級",   strength: 1,  resistance: 1,  hboost: 5,  healAmt: 15, healThr: 0.75, healCd: 100, crit: 0.55, strafePow: 0.50 },
-};
 const DEFAULT_LEVEL = 3;
 
 // ターゲットモード: "all"=全プレイヤー / "tag"=pvp_targetタグのある人だけ
@@ -1716,19 +2056,12 @@ function applyTargetMode(master) {
 function getLevel(master) {
   try {
     const level = master.getProperty("pvp:skin_level");
-    if (typeof level === "number" && LEVELS[level]) return level;
+    if (Number.isInteger(level) && level >= 1 && level <= 5) return level;
   } catch {}
   return DEFAULT_LEVEL;
 }
-function cfg(master) { return LEVELS[getLevel(master)]; }
 
-function getBotInventory(master) {
-  const inventory = master.getComponent("minecraft:inventory");
-  if (!inventory || !inventory.container) {
-    throw new Error("Bot inventory is unavailable");
-  }
-  return inventory.container;
-}
+const updateName = createBotStatus({ getLevel });
 
 const initializeInventory = createInventorySetup({
   inventoryConfig: INVENTORY_CONFIG,
@@ -1739,22 +2072,6 @@ const initializeInventory = createInventorySetup({
 });
 
 const dropInventoryItems = createInventoryDropper({ getBotInventory, broadcastMessage });
-
-// 頭上に表示する名前をレベルに合わせる
-function updateName(master) {
-  const lv = getLevel(master);
-  try {
-    const health = master.getComponent("minecraft:health");
-    const current = health ? Math.ceil(health.currentValue) : "?";
-    const maximum = health ? Math.ceil(health.effectiveMax) : "?";
-    const nameTag = `PVPbot（${LEVELS[lv].name}） §cHP ${current}/${maximum}`;
-    if (master.nameTag !== nameTag) master.nameTag = nameTag;
-  }
-  catch
-  {
-
-  }
-}
 
 function syncSkin(master) {
   try { master.setProperty("pvp:skin_level", getLevel(master)); } catch {}
@@ -1770,57 +2087,15 @@ function equipWeapon(master) {
   return updateMainhandMode(master, true);
 }
 
-function equipLevelArmor(master) {
-  const material = INVENTORY_CONFIG.levels[getLevel(master)].armor;
-  for (const { slot, suffix } of INVENTORY_CONFIG.armorSlots) {
-    const item = `${material}_${suffix}`;
-    const equipmentSlot = {
-      head: EquipmentSlot.Head,
-      chest: EquipmentSlot.Chest,
-      legs: EquipmentSlot.Legs,
-      feet: EquipmentSlot.Feet,
-    }[slot];
-    let equipped = false;
-    const errors = [];
-
-    try {
-      const equippable = master.getComponent("minecraft:equippable");
-      if (!equippable || !equipmentSlot) throw new Error("Equippable component or armor slot is unavailable");
-      equippable.setEquipment(equipmentSlot, new ItemStack(`minecraft:${item}`, 1));
-      equipped = true;
-    } catch (error) {
-      errors.push(`equippable: ${error}`);
-    }
-
-    try {
-      const result = master.runCommand(`replaceitem entity @s slot.armor.${slot} 0 ${item} 1`);
-      if (result.successCount > 0) equipped = true;
-      else errors.push(`replaceitem: ${result.statusMessage}`);
-    } catch (error) {
-      errors.push(`replaceitem: ${error}`);
-    }
-    if (!equipped) console.warn(`[PVPbot] 防具の装備に失敗しました (${item}): ${errors.join("; ")}`);
-  }
-}
-
-// 実際に手に持っているものを読み取る(読めない環境では null)
-function getHeldItemId(master) {
-  try {
-    const eq = master.getComponent("minecraft:equippable");
-    if (eq) {
-      const held = eq.getEquipment(EquipmentSlot.Mainhand);
-      return held ? held.typeId : "(素手)";
-    }
-  }
-  catch
-  {
-
-  }
-  return null;
-}
-
+const equipLevelArmor = createArmorEquipper({
+  inventoryConfig: INVENTORY_CONFIG,
+  getLevel,
+});
 
 const fallBehavior = createFallBehavior({ knockback });
+const strafeAction = createStrafeAction({ knockback });
+const criticalAction = createCriticalAction();
+const cqcAttackAction = createCqcAttackAction({ strafeAction, getLevel, criticalAction });
 
 const DIMENSIONS = ["overworld", "nether", "the_end"];
 
@@ -1853,49 +2128,28 @@ function dist(a, b) {
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-function nearestPlayer(dim, loc) {
-  const tagMode = getTargetMode() === "tag";
-  let best = null, bestD = Infinity;
-  for (const p of dim.getPlayers({
-    location: loc, maxDistance: 150,
-    excludeGameModes: [GameMode.creative, GameMode.spectator],
-  })) {
-    // タグモード中は pvp_target タグのあるプレイヤーだけを対象にする
-    if (tagMode) {
-      try { if (!p.hasTag(TARGET_TAG)) continue; } catch { continue; }
-    }
-    const d = dist(p.location, loc);
-    if (d < bestD) { bestD = d; best = p; }
-  }
-  return best ? { player: best, distance: bestD } : null;
-}
-
-// レベルに応じたバフを付与(定期的に更新)
-function applyLevelBuffs(master) {
-  const c = cfg(master);
-  try {
-    if (c.strength >= 0) master.addEffect("strength", 100, { amplifier: c.strength, showParticles: false });
-    if (c.resistance >= 0) master.addEffect("resistance", 100, { amplifier: c.resistance, showParticles: false });
-    if (c.hboost >= 0) master.addEffect("health_boost", 100, { amplifier: c.hboost, showParticles: false });
-  } catch {}
-}
+const targetSearcher = createTargetSearcher({
+  getTargetMode,
+  targetTag: TARGET_TAG,
+  distance: dist,
+  excludeGameModes: [GameMode.creative, GameMode.spectator],
+});
 
 const tryStartHealing = createHealingHandler({
   inventoryConfig: INVENTORY_CONFIG,
   getLevel,
   getState,
   getBotInventory,
-  cfg,
   broadcastMessage,
   getHealingItem: (master) => INVENTORY_CONFIG.levels[getLevel(master)].healingItem,
   getMainhandMode,
   updateMainhandMode,
   equipWeapon,
 });
+const handleBotDamage = createBotDamageAction({ masterId: MASTER_ID, getState, tryStartHealing });
 
 // ---------- メインAIループ (毎tick) ----------
 system.runInterval(() => {
-  const refreshBuffs = system.currentTick % 40 === 0;
   for (const dimId of DIMENSIONS) {
     let dim;
     try { dim = world.getDimension(dimId); } catch { continue; }
@@ -1922,20 +2176,19 @@ system.runInterval(() => {
         console.error(`[PVPbot] メインハンドのモード切替に失敗しました: ${error}`);
       }
       try {
-        if (refreshBuffs) applyLevelBuffs(master);
         if (system.currentTick % 100 === 0) {
           equipOffhandShield(master);
           updateMainhandMode(master, true);
         }
-        aiTick(master, dim, dimId);
+        aiTick(master, dim);
       } catch { /* チャンク未ロード等は無視 */ }
     }
   }
 }, 1);
 
-function aiTick(master, dim, dimId) {
+
+function aiTick(master, dim) {
   const s = getState(master);
-  const c = cfg(master);
   if (s.healCd > 0) s.healCd--;
   if (s.strafeCd > 0) s.strafeCd--;
   if (s.breakCd > 0) s.breakCd--;
@@ -1948,129 +2201,29 @@ function aiTick(master, dim, dimId) {
     s.healingInventoryRetry = 100;
   }
 
-  // ---- 溶岩脱出中は通常のAI行動を止める ----
-  if (lavaBehavior.lavaEscapeTick(master, dim, s)) return;
-
-  const loc = master.location;
-  // 毎tick全プレイヤーを走査すると重くなるので、4tickごとに更新して使い回す
-  if (s.scanCd === undefined || s.scanCd <= 0) {
-    s.cachedTarget = nearestPlayer(dim, loc);
-    s.scanCd = 4;
-  } else {
-    s.scanCd--;
-    // 対象が消えた/死んだ場合に備えて有効性を確認
-    if (s.cachedTarget && !s.cachedTarget.player.isValid) s.cachedTarget = null;
-  }
-  const found = s.cachedTarget
-    ? { player: s.cachedTarget.player, distance: dist(s.cachedTarget.player.location, loc) }
-    : null;
-
-  tryStartHealing(master);
-
-  if (!found) return;
-  const target = found.player;
-  const d = found.distance;
-
-  // ---- 近接戦闘: ストレイフ&ジャンプクリティカル ----
-  if (d < 5.5 && s.strafeCd <= 0 && master.isOnGround) {
-    const dx = target.location.x - loc.x;
-    const dz = target.location.z - loc.z;
-    const len = Math.sqrt(dx * dx + dz * dz) || 1;
-    const nx = dx / len, nz = dz / len;
-    const side = Math.random() < 0.5 ? 1 : -1;
-    const mixF = 0.55, mixS = 0.85;
-    const kx = nx * mixF + (-nz * side) * mixS;
-    const kz = nz * mixF + (nx * side) * mixS;
-    const critJump = Math.random() < c.crit ? 0.45 : 0;
-    knockback(master, kx, kz, c.strafePow, critJump);
-    s.strafeCd = 7 + Math.floor(Math.random() * 7);
-  }
-
-  // ---- 相手が高所にいる → 足場を積んで登る ----
-  const hdx0 = target.location.x - loc.x;
-  const hdz0 = target.location.z - loc.z;
-  const hdist0 = Math.sqrt(hdx0 * hdx0 + hdz0 * hdz0);
-  const dyUp = target.location.y - loc.y;
-
-  // 積み上げ中は他の移動処理を行わない(横に引っ張られて落ちるのを防ぐ)
-  if (pillarBehavior.pillarTick(master, target, dim, s)) return;
-
-  // 相手が2ブロック以上高く、真下付近まで来ていたら積み始める
-  if (dyUp >= 2.0 && hdist0 <= 3.5 && master.isOnGround && s.pillarCd <= 0) {
-    pillarBehavior.startPillar(master, s);
-    s.pillarCd = 20;
-    if (pillarBehavior.pillarTick(master, target, dim, s)) return;
-  }
-
-  // ---- 相手が下にいる → 崖から飛び降りる ----
-  fallBehavior.tryDescend(master, target, dim, s);
-
-  // ---- 溶岩が行く手を塞いでいる → ブロックを置いて渡る(lava onのみ) ----
-  lavaBehavior.tryLavaBridge(master, target, dim, s, d);
-
-  // ---- 囲い検知: 相手が近いのに壁で遮られて攻撃できない → 壁を壊す ----
-  // (スタック検知は距離3超が条件のため、プレイヤーが自分の周りを
-  //  囲った場合はここで対応する。視線が通っている間は何もしない)
-  if (d <= 5 && s.breakCd <= 0) {
-    const eye = { x: loc.x, y: loc.y + 1.5, z: loc.z };
-    const tx = target.location.x - eye.x;
-    const ty = (target.location.y + 1.0) - eye.y;
-    const tz = target.location.z - eye.z;
-    const tlen = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
-    let blocked = false;
-    try {
-      const hit = dim.getBlockFromRay(
-        eye,
-        { x: tx / tlen, y: ty / tlen, z: tz / tlen },
-        { maxDistance: Math.min(tlen, 5), includeLiquidBlocks: false, includePassableBlocks: false }
-      );
-      blocked = !!(hit && hit.block);
-    } catch {}
-    if (blocked) {
-      s.boxTicks = (s.boxTicks || 0) + 1;
-      if (s.boxTicks > 12) {   // 0.6秒遮られ続けたら壊す
-        breakTowards(master, target, dim);
-        s.breakCd = 10;
-        s.boxTicks = 0;
-      }
-    } else {
-      s.boxTicks = 0;
-    }
-  }
-
-  // ---- スタック検知 → ブロック破壊で強行突破 ----
-  if (d > 3) {
-    if (s.lastPos) {
-      const moved = dist(loc, s.lastPos);
-      if (moved < 0.06) s.stuckTicks++;
-      else s.stuckTicks = 0;
-    }
-    s.lastPos = { x: loc.x, y: loc.y, z: loc.z };
-    if (s.stuckTicks > 15 && s.breakCd <= 0) {
-      breakTowards(master, target, dim);
-      s.breakCd = 10;
-      s.stuckTicks = 0;
-    }
-  } else {
-    s.stuckTicks = 0;
-  }
+  actionController(master, dim, s);
 }
 
 
-
-// ============================================================
-//  ブロック積み上げ(パルクールタワー)
-//  ジャンプ → 空中で足元に設置 → 着地 → 再びジャンプ を繰り返して
-//  相手の高さまで一気に登る
-// ============================================================
 const lavaBehavior = createLavaBehavior({
   knockback,
   isEditProtected,
   pillarBlock: PILLAR_BLOCK,
 });
 const breakTowards = createBlockBreaker({ isProtected, isEditProtected });
+const actionController = createActionController({
+  lavaEscapeTick: lavaBehavior.lavaEscapeTick,
+  updateTarget: targetSearcher.updateTarget,
+  tryStartHealing,
+  cqcAttackAction,
+  pillarBehavior,
+  tryDescend: fallBehavior.tryDescend,
+  tryLavaBridge: lavaBehavior.tryLavaBridge,
+  breakTowards,
+  distance: dist,
+});
 
-// 存在しなくなったエンティティの状態を定期的に破棄する(メモリリーク対策)
+// 600ティックごとに存在しなくなったエンティティの状態を破棄する(メモリリーク対策)
 system.runInterval(() => {
   if (states.size === 0) return;
   const alive = new Set();
@@ -2101,15 +2254,14 @@ registerCommands({
 
 registerSpawnSetup({
   masterId: MASTER_ID,
-  levels: LEVELS,
   getLevel,
+  getBotLevelName,
   broadcastMessage,
   equipWeapon,
   equipLevelArmor,
   equipOffhandShield,
   syncSkin,
   updateName,
-  applyLevelBuffs,
   applyTargetMode,
   initializeInventory,
 });
@@ -2119,46 +2271,12 @@ registerDeathHandler({
   broadcastMessage,
   dropInventoryItems,
   states,
+  getLevel,
+  getBotLevelName,
 });
 
-// ---------- コンボ補正 ----------
+// ダメージ時の処理
 world.afterEvents.entityHurt.subscribe((ev) => {
-  const src = ev.damageSource ? ev.damageSource.damagingEntity : undefined;
-  const hurt = ev.hurtEntity;
-  
-  if (hurt && hurt.typeId === MASTER_ID) {
-    const hp = hurt.getComponent("minecraft:health");
-    
-    // 💡 安全ブレーキ：そもそも体力のコンポーネントがない、またはすでにHPが0以下の場合は即終了（回復させない）
-    if (!hp || hp.currentValue <= 0) return;
-
-    const state = getState(hurt);
-    const c = cfg(hurt);
-    if (state.healStatusCd <= 0) {
-      state.healStatusCd = 40;
-    }
-    
-    system.run(() => {
-      try {
-        // 💡 実行される直前にも、念のためもう一度生存チェックを入れる
-        if (hurt.isValid && hp.currentValue > 0) {
-          tryStartHealing(hurt);
-        }
-      }
-      catch (error)
-      {
-        console.error(`[PVPbot] 被ダメージ後の回復開始に失敗しました: ${error}`);
-      }
-    });
-  }
-  
-  if (!src || src.typeId !== MASTER_ID) return;
-  if (!hurt || hurt.typeId !== "minecraft:player") return;
-  if (Math.random() >= 0.25) return;
-  try {
-    const dx = hurt.location.x - src.location.x;
-    const dz = hurt.location.z - src.location.z;
-    const len = Math.sqrt(dx * dx + dz * dz) || 1;
-    knockback(hurt, dx / len, dz / len, 0.3, 0.2);
-  } catch {}
+  handleBotDamage(ev);
+  applyPlayerAttackKnockback(ev);
 });

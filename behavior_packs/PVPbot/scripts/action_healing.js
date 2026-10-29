@@ -1,11 +1,18 @@
 import { system } from "@minecraft/server";
 
+const HEAL_AMOUNT_BY_ITEM = {
+  "minecraft:cooked_beef": 6,
+  "minecraft:golden_carrot": 8,
+  "minecraft:golden_apple": 10,
+};
+const HEAL_THRESHOLD = 8;
+const HEAL_COOLDOWN = 100;
+
 export function createHealingHandler({
   inventoryConfig,
   getLevel,
   getState,
   getBotInventory,
-  cfg,
   broadcastMessage,
   getHealingItem,
   getMainhandMode,
@@ -34,27 +41,28 @@ export function createHealingHandler({
 
   return function tryStartHealing(master) {
     const state = getState(master);
-    const config = cfg(master);
     const health = master.getComponent("minecraft:health");
     if (!health) return false;
 
     const maxHealth = health.effectiveMax;
     const currentHealth = health.currentValue;
     if (!Number.isFinite(maxHealth) || maxHealth <= 0 || !Number.isFinite(currentHealth)) return false;
-    const healthRatio = currentHealth / maxHealth;
-    if (healthRatio > config.healThr) return false;
+    if (currentHealth > HEAL_THRESHOLD) return false;
 
     if (state.healing || state.healCd > 0 || state.healingItemAmount < 1) return false;
 
+    const healingItem = getHealingItem(master);
+    const healAmount = HEAL_AMOUNT_BY_ITEM[healingItem.id];
+    if (typeof healAmount !== "number") return false;
+
     if (!consumeHealingItem(master)) {
-      state.healCd = config.healCd;
+      state.healCd = HEAL_COOLDOWN;
       return false;
     }
 
-    const healingItem = getHealingItem(master);
     state.healing = true;
 
-    state.healCd = config.healCd;
+    state.healCd = HEAL_COOLDOWN;
     try {
       master.addEffect("slowness", 30, { amplifier: 5, showParticles: false });
       master.addEffect("weakness", 30, { amplifier: 5, showParticles: false });
@@ -76,7 +84,7 @@ export function createHealingHandler({
         if (!currentHealthComponent || currentHealthComponent.currentValue <= 0) return;
 
         const before = currentHealthComponent.currentValue;
-        const targetHealth = Math.min(currentHealthComponent.effectiveMax, before + config.healAmt);
+        const targetHealth = Math.min(currentHealthComponent.effectiveMax, before + healAmount);
         if (Number.isFinite(targetHealth) && targetHealth > 0) {
           currentHealthComponent.setCurrentValue(targetHealth);
         }

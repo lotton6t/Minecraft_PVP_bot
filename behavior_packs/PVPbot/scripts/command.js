@@ -15,22 +15,6 @@ export function registerCommands({
   equipWeapon,
   getHeldItemId,
 }) {
-  system.afterEvents.scriptEventReceive.subscribe((ev) => {
-    if (ev.id !== "pvpbot:lava") return;
-    const message = (ev.message || "").trim().toLowerCase();
-    if (message !== "on" && message !== "off") {
-      world.sendMessage("§c[PVPbot] 使い方: /scriptevent pvpbot:lava <on / off>");
-      world.sendMessage("§7  on = 溶岩からの脱出・橋渡しAIを有効 / off = 無効");
-      world.sendMessage(`§7  現在: ${isLavaOn() ? "有効" : "無効"}`);
-      world.sendMessage("§7  溶岩・炎のダメージは常に受け、防具で軽減されます");
-      return;
-    }
-    world.setDynamicProperty("pvp_lava", message === "on");
-    world.sendMessage(message === "on"
-      ? "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを有効にしました"
-      : "§6[PVPbot] §e溶岩からの脱出・橋渡しAIを無効にしました");
-  });
-
   // Usage: /scriptevent pvpbot:target tag or /scriptevent pvpbot:target all
   system.afterEvents.scriptEventReceive.subscribe((ev) => {
     if (ev.id !== "pvpbot:target") return;

@@ -1,5 +1,16 @@
 import { EquipmentSlot, ItemStack, world } from "@minecraft/server";
 
+export function getHeldItemId(master) {
+  try {
+    const equippable = master.getComponent("minecraft:equippable");
+    if (equippable) {
+      const held = equippable.getEquipment(EquipmentSlot.Mainhand);
+      return held ? held.typeId : "(素手)";
+    }
+  } catch {}
+  return null;
+}
+
 export function createMainhandController({ inventoryConfig, getLevel, getState }) {
   function getWeaponId(master) {
     const override = world.getDynamicProperty("pvp_weapon");

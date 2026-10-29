@@ -2,15 +2,14 @@ import { world, system } from "@minecraft/server";
 
 export function registerSpawnSetup({
   masterId,
-  levels,
   getLevel,
+  getBotLevelName,
   broadcastMessage,
   equipWeapon,
   equipLevelArmor,
   equipOffhandShield,
   syncSkin,
   updateName,
-  applyLevelBuffs,
   applyTargetMode,
   initializeInventory,
 }) {
@@ -27,7 +26,6 @@ export function registerSpawnSetup({
           equipOffhandShield(entity);
           syncSkin(entity);
           updateName(entity);
-          applyLevelBuffs(entity);
           applyTargetMode(entity);
         }
         catch
@@ -47,7 +45,7 @@ export function registerSpawnSetup({
     {
       // 入室メッセージを送信
       const lvNum = getLevel(entity);
-      const lvName = levels[lvNum]?.name || "unknown";
+      const lvName = getBotLevelName(lvNum);
       broadcastChat("SPAWN_MESSAGE", lvName);
     }
     catch (error)
@@ -60,7 +58,6 @@ export function registerSpawnSetup({
       system.runTimeout(() => {
         try
         {
-          applyLevelBuffs(entity);
           initializeInventory(entity);
           equipWeapon(entity);
           equipLevelArmor(entity);

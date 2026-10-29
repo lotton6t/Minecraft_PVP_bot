@@ -1,3 +1,25 @@
+export function breakBlock(dim, block, sound) {
+  const { x, y, z } = block;
+
+  try {
+    dim.runCommand(`setblock ${x} ${y} ${z} air destroy`);
+  } catch {
+    try {
+      block.setType("minecraft:air");
+    } catch {
+      return false;
+    }
+  }
+
+  if (sound) {
+    try {
+      dim.playSound(sound, { x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+    } catch {}
+  }
+
+  return true;
+}
+
 export function createBlockBreaker({ isProtected, isEditProtected }) {
   return function breakTowards(master, target, dim) {
     const location = master.location;
@@ -23,13 +45,7 @@ export function createBlockBreaker({ isProtected, isEditProtected }) {
       if (isProtected(block.typeId)) continue;
       if (isEditProtected(dim, candidate.x, candidate.y, candidate.z)) continue;
 
-      const bx = block.x, by = block.y, bz = block.z;
-      try {
-        dim.runCommand(`setblock ${bx} ${by} ${bz} air destroy`);
-      } catch {
-        try { block.setType("minecraft:air"); } catch { continue; }
-      }
-      try { dim.playSound("dig.stone", { x: bx + 0.5, y: by + 0.5, z: bz + 0.5 }); } catch {}
+      if (!breakBlock(dim, block, "dig.stone")) continue;
       broken++;
     }
   };
