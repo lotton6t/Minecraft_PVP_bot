@@ -1,3 +1,4 @@
 *.lnk
 build/copyAddress.txt
 build/copyFolder.txt
+node_modules/

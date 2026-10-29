@@ -1,4 +1,6 @@
 import { world, system } from "@minecraft/server";
+import { ItemStack, EquipmentSlot } from "@minecraft/server";
+
 
 export function registerSpawnSetup({
   masterId,

@@ -1,0 +1,13 @@
+{
+  "name": "minecraft-pvp-bot",
+  "version": "1.0.0",
+  "description": "AI PVP Bot for Minecraft Bedrock Edition",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
